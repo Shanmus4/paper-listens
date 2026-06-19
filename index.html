@@ -2,20 +2,92 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <meta name="description" content="Play your music, the paper is listening. Turn sound into watercolor." />
+    <meta name="theme-color" content="#f4ede1" />
     <title>Paper Listens</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main id="app">
-      <h1 class="headline">
+    <!-- The painting surface fills the whole viewport, behind everything. -->
+    <canvas id="paper" aria-label="Your painting"></canvas>
+
+    <!-- Paper grain + vignette overlay (pure CSS, sits above the canvas). -->
+    <div class="paper-grain" aria-hidden="true"></div>
+
+    <!-- ============ STAGE: the live painting view ============ -->
+    <div id="stage" class="stage" hidden>
+      <header class="topbar">
+        <h1 class="headline">
+          play your music,<br />
+          the paper is listening
+          <span class="dots">..</span>
+        </h1>
+
+        <div class="controls-wrap">
+          <button id="controlsToggle" class="pill" aria-expanded="false" aria-controls="controlsPanel">
+            Controls
+            <span class="caret" aria-hidden="true">▾</span>
+          </button>
+          <div id="controlsPanel" class="controls-panel" hidden>
+            <label class="panel-row">
+              <span>Source</span>
+              <select id="sourceSelect">
+                <option value="mic" selected>Microphone</option>
+                <option value="file" disabled>Upload file (soon)</option>
+                <option value="spotify" disabled>Spotify link (soon)</option>
+              </select>
+            </label>
+            <label class="panel-row">
+              <span>Sensitivity</span>
+              <input id="sensitivity" type="range" min="0" max="100" value="50" />
+            </label>
+          </div>
+        </div>
+      </header>
+
+      <!-- Bottom-left: live input level so the user knows it is listening. -->
+      <div class="level-wrap" aria-hidden="true">
+        <canvas id="level" width="180" height="48"></canvas>
+      </div>
+
+      <!-- Bottom-right: the paper-card control bar. -->
+      <div class="actionbar">
+        <button id="backBtn" class="action" type="button">
+          <span class="glyph" aria-hidden="true">‹</span> Back
+        </button>
+        <button id="clearBtn" class="action" type="button">
+          <span class="glyph" aria-hidden="true">○</span> New Sheet
+        </button>
+        <button id="saveBtn" class="action" type="button">
+          <span class="glyph" aria-hidden="true">↓</span> Save
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ GATE: first-load landing / permission ============ -->
+    <div id="gate" class="gate">
+      <h1 class="headline headline--gate">
         play your music,<br />
-        the paper is listening ..
+        the paper is listening
+        <span class="dots">..</span>
       </h1>
-      <p class="subtle">coming to life soon</p>
-    </main>
-    <!-- The full app boots from here once the UI shell lands. -->
-    <!-- <script type="module" src="./src/main.js"></script> -->
+      <button id="startBtn" class="start-btn" type="button">tap to listen</button>
+      <p id="gateHint" class="gate-hint">
+        Paper Listens will ask to use your microphone. Nothing is recorded or sent anywhere.
+      </p>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>

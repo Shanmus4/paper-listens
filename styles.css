@@ -1,10 +1,17 @@
-/* Paper Listens — base styles.
-   The full UI shell replaces this placeholder in the next step. */
+/* Paper Listens — interface styles.
+   Painting colors are computed in JS; this file styles the paper and chrome only. */
 
 :root {
   --paper: #f4ede1;
+  --paper-deep: #ece2d2;
   --ink: #3a342c;
+  --ink-soft: #6b6151;
   --sepia: #8b7355;
+  --card: rgba(248, 243, 234, 0.82);
+  --card-border: rgba(58, 52, 44, 0.14);
+  --shadow: 0 6px 24px rgba(58, 52, 44, 0.16);
+  --radius: 14px;
+  --gap: clamp(16px, 3vw, 32px);
 }
 
 * {
@@ -16,33 +23,315 @@
 html,
 body {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
   background-color: var(--paper);
   color: var(--ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  position: relative;
 }
 
-#app {
+/* ---------- Paper surface ---------- */
+
+#paper {
+  position: fixed;
+  inset: 0;
+  width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 6vw;
+  display: block;
+  z-index: 0;
 }
+
+/* Grain + vignette layered over the canvas so the paint sits "in" the paper. */
+.paper-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(120% 120% at 50% 50%, transparent 60%, rgba(58, 52, 44, 0.1) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  background-size: cover, 160px 160px;
+  mix-blend-mode: multiply;
+}
+
+/* ---------- Shared headline ---------- */
 
 .headline {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Caveat", "Segoe Script", cursive;
   font-weight: 700;
-  font-size: clamp(2rem, 6vw, 4rem);
-  line-height: 1.15;
-  letter-spacing: -0.01em;
+  font-size: clamp(2.2rem, 6vw, 4.25rem);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
-.subtle {
-  margin-top: 1.5rem;
+.dots {
   color: var(--sepia);
-  font-size: 1rem;
+}
+
+/* ---------- Stage (live painting view) ---------- */
+
+.stage {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none; /* clicks fall through to canvas except on controls */
+}
+
+.stage[hidden] {
+  display: none;
+}
+
+.topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: var(--gap);
+}
+
+.controls-wrap {
+  pointer-events: auto;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  padding: 9px 18px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.pill:hover {
+  transform: translateY(-1px);
+  background: rgba(248, 243, 234, 0.95);
+}
+
+.caret {
+  font-size: 0.7em;
+  transition: transform 0.18s ease;
+}
+
+.pill[aria-expanded="true"] .caret {
+  transform: rotate(180deg);
+}
+
+.controls-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(280px, 80vw);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.controls-panel[hidden] {
+  display: none;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+.panel-row select,
+.panel-row input[type="range"] {
+  font: inherit;
+  accent-color: var(--sepia);
+}
+
+.panel-row select {
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ---------- Level meter (bottom-left) ---------- */
+
+.level-wrap {
+  position: absolute;
+  left: var(--gap);
+  bottom: var(--gap);
+  opacity: 0.7;
+}
+
+#level {
+  display: block;
+  width: 180px;
+  height: 48px;
+}
+
+/* ---------- Action bar (bottom-right) ---------- */
+
+.actionbar {
+  position: absolute;
+  right: var(--gap);
+  bottom: var(--gap);
+  display: flex;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.action:hover {
+  transform: translateY(-1px);
+  background: rgba(248, 243, 234, 0.95);
+}
+
+.action:active {
+  transform: translateY(0);
+}
+
+.glyph {
+  font-size: 1.05em;
+  line-height: 1;
+  color: var(--sepia);
+}
+
+/* ---------- Gate (landing / permission) ---------- */
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: var(--gap);
+  text-align: center;
+  background: var(--paper);
+  transition: opacity 0.6s ease;
+}
+
+.gate.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.headline--gate {
+  font-size: clamp(2.4rem, 7vw, 5rem);
+}
+
+.start-btn {
+  font-family: "Caveat", cursive;
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  font-weight: 700;
+  color: var(--paper);
+  background: var(--ink);
+  border: none;
+  border-radius: 999px;
+  padding: 12px 38px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform 0.14s ease, background 0.14s ease;
+}
+
+.start-btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  background: #2c281f;
+}
+
+.gate-hint {
+  max-width: 36ch;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width: 640px) {
+  .headline {
+    font-size: clamp(1.8rem, 8vw, 2.6rem);
+  }
+
+  .topbar {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* Keep the Controls pill on the right so its panel never runs off-screen. */
+  .controls-wrap {
+    align-self: flex-end;
+  }
+
+  .controls-panel {
+    width: min(280px, calc(100vw - 2 * var(--gap)));
+  }
+
+  .actionbar {
+    left: var(--gap);
+    right: var(--gap);
+    justify-content: center;
+  }
+
+  .action {
+    flex: 1;
+    justify-content: center;
+    padding: 12px 8px;
+  }
+
+  .level-wrap {
+    display: none; /* keep mobile clean; reinstate if useful */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
 }
