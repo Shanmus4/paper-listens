@@ -9,8 +9,9 @@ import { createAnalyzer } from "./audio/features.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
-import { mapPitched } from "./visual/synesthesia.js";
+import { mapPitched, mapPercussive } from "./visual/synesthesia.js";
 import { createWatercolor } from "./visual/watercolor.js";
+import { createPercussion } from "./visual/percussion.js";
 
 const paperEl = document.getElementById("paper");
 const paper = createPaper(paperEl);
@@ -19,6 +20,7 @@ const levelEl = document.getElementById("level");
 const levelMeter = createLevelMeter(levelEl);
 
 const watercolor = createWatercolor(paper);
+const percussion = createPercussion(paper);
 const onsetDetector = createOnsetDetector({ sensitivity: 0.5 });
 const modeTracker = createModeTracker();
 
@@ -38,6 +40,7 @@ function frame() {
   ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, 0, 0, width, height);
 
   watercolor.render(ctx, now); // wet blots over the dried paper
+  percussion.render(ctx, now); // ink splatters + kick pulse
 
   levelMeter.render();
   requestAnimationFrame(frame);
@@ -61,8 +64,9 @@ function onAudioFrame(f) {
     for (const blot of mapPitched(cls, f, modeTracker.getVibrancy(), dims)) {
       watercolor.addBlot(blot, now);
     }
+  } else {
+    percussion.addSplat(mapPercussive(cls, f, dims), now);
   }
-  // Percussive onsets are handled once the percussion renderer lands.
 }
 
 // ---- Audio start / stop ----
@@ -86,6 +90,7 @@ wireControls({
   onClear: () => {
     paper.clear();
     watercolor.clear();
+    percussion.clear();
   },
   onSave: () => paper.save(),
   onSensitivity: (value) => onsetDetector.setSensitivity(value),
@@ -93,4 +98,4 @@ wireControls({
 
 // Dev hook: lets the preview feed synthetic audio frames without a microphone.
 // Harmless in production; nothing calls it unless explicitly invoked.
-window.__pl = { feed: onAudioFrame, paper, watercolor };
+window.__pl = { feed: onAudioFrame, paper, watercolor, percussion };
