@@ -50,6 +50,15 @@ let evtPtr = 0; // next event to paint
 let renderedT = 0; // the song time the painting currently reflects (sec)
 let scrubbing = false; // true while the user drags the seek bar
 let scrubTargetT = 0; // latest scrub position, repainted at most once per frame
+let fileEnv = null; // loudness envelope of the loaded song (drives the meter)
+let fileEnvStep = 1; // seconds between envelope samples
+
+// Loudness of the song at time `t`, sampled from the precomputed envelope.
+function levelAt(t) {
+  if (!fileEnv || !fileEnv.length) return 0;
+  const i = Math.min(fileEnv.length - 1, Math.max(0, Math.floor(t / fileEnvStep)));
+  return fileEnv[i];
+}
 
 // ---- Render loop ----
 function frame() {
@@ -64,10 +73,13 @@ function frame() {
   if (player && currentSource === "file") {
     if (scrubbing) {
       if (scrubTargetT !== renderedT) paintToTime(scrubTargetT, true);
+      levelMeter.push(levelAt(scrubTargetT));
     } else {
       const pos = player.position();
       paintToTime(pos, false, now);
       ui?.setSeekValue(pos);
+      // Feed the meter from the song so it moves during playback, not just mic.
+      levelMeter.push(player.isPlaying() ? levelAt(pos) : 0);
     }
   }
 
@@ -202,6 +214,7 @@ function teardownSource() {
   source = null;
   player = null;
   events = [];
+  fileEnv = null;
   evtPtr = 0;
   renderedT = 0;
   scrubbing = false;
@@ -239,6 +252,8 @@ async function startFile(file) {
     await new Promise((r) => setTimeout(r, 16));
     const result = analyzeBuffer(player.audioBuffer, { sensitivity });
     events = result.events;
+    fileEnv = result.env;
+    fileEnvStep = result.envStep;
     evtPtr = 0;
     renderedT = 0;
 
@@ -279,6 +294,15 @@ function currentAudioStream() {
 ui = wireControls({
   onMic: startMic,
   onFile: startFile,
+  // Entering Upload fresh (e.g. coming back from the mic): tear down any prior
+  // playback and hide the transport. We do NOT auto-replay the last song — the
+  // user chooses a file again. The canvas art is left untouched.
+  onUploadEnter: () => {
+    teardownSource();
+    currentSource = null;
+    ui?.showTransport(false);
+    ui?.setPlaying(false);
+  },
   onClear: clearCanvas,
   onSave: (name) => paper.save(name),
   onSensitivity: (value) => {

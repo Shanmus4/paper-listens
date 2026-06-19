@@ -115,6 +115,7 @@ export async function createFilePlayer(file, { onEnded } = {}) {
     audioStream: streamDest.stream,
     position,
     isEnded: () => ended,
+    isPlaying: () => !!node && !ended && audioContext.state === "running",
     start() {
       startAt(0);
     },

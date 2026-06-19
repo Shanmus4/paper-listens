@@ -16,6 +16,7 @@ const ICON_PLAY =
 export function wireControls({
   onMic,
   onFile,
+  onUploadEnter,
   onClear,
   onSave,
   onSensitivity,
@@ -41,6 +42,15 @@ export function wireControls({
   const fmtTime = (sec) => {
     sec = Math.max(0, Math.floor(sec || 0));
     return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  };
+
+  // Paint a slider's filled portion (sepia up to the value) via a CSS variable,
+  // so the track reads as a progress line with no separate handle dot.
+  const setFill = (el) => {
+    const min = Number(el.min || 0);
+    const max = Number(el.max || 100);
+    const pct = max > min ? ((Number(el.value) - min) / (max - min)) * 100 : 0;
+    el.style.setProperty("--pct", pct + "%");
   };
 
   const srcMic = document.getElementById("srcMic");
@@ -96,9 +106,13 @@ export function wireControls({
   srcFile.addEventListener("click", () => {
     const wasFile = currentActive === "file";
     setActiveSource("file");
-    // Coming back from the mic with a song already chosen: reload it so the
-    // transport reappears and it plays again (rather than a dead drop box).
-    if (lastFile && !wasFile) loadFile(lastFile);
+    // Entering Upload starts fresh: reset the drop box and clear any prior
+    // song state. We do not auto-replay the last file — the user picks one.
+    if (!wasFile) {
+      lastFile = null;
+      dropMain.textContent = "Drop a file here, or browse";
+      onUploadEnter?.();
+    }
   });
 
   // --- Drop box ---
@@ -132,7 +146,9 @@ export function wireControls({
   );
 
   // --- Sensitivity ---
+  setFill(sensitivity);
   sensitivity.addEventListener("input", () => {
+    setFill(sensitivity);
     onSensitivity?.(Number(sensitivity.value) / 100);
   });
 
@@ -185,16 +201,25 @@ export function wireControls({
   playPause.addEventListener("click", () => onTogglePlay?.());
 
   // --- Seek bar ---
+  // While dragging we only preview (paint to the target); the audio jumps once,
+  // on release. `commitSeek` is fired from several events so the scrub state can
+  // never get stuck (touch devices don't always fire `change`).
+  function commitSeek() {
+    if (!seekScrubbing) return;
+    seekScrubbing = false;
+    onSeekCommit?.(Number(seek.value));
+  }
   seek.addEventListener("input", () => {
     seekScrubbing = true;
     const t = Number(seek.value);
     seekTime.textContent = fmtTime(t);
+    setFill(seek);
     onSeek?.(t);
   });
-  seek.addEventListener("change", () => {
-    seekScrubbing = false;
-    onSeekCommit?.(Number(seek.value));
-  });
+  seek.addEventListener("change", commitSeek); // keyboard + mouse
+  seek.addEventListener("pointerup", commitSeek); // reliable touch/mouse release
+  seek.addEventListener("pointercancel", commitSeek);
+  seek.addEventListener("lostpointercapture", commitSeek);
 
   return {
     setActiveSource,
@@ -213,11 +238,13 @@ export function wireControls({
       seek.max = String(seconds || 0);
       seek.value = "0";
       seekTime.textContent = fmtTime(0);
+      setFill(seek);
     },
     setSeekValue(seconds) {
       if (seekScrubbing) return; // don't fight the user's drag
       seek.value = String(seconds);
       seekTime.textContent = fmtTime(seconds);
+      setFill(seek);
     },
     setPlaying(on) {
       // While playing, the button offers Pause; while paused, it offers Play.

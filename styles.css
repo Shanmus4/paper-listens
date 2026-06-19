@@ -186,7 +186,6 @@ body {
 
 .panel-row input[type="range"] {
   font: inherit;
-  accent-color: var(--sepia);
   flex: 1;
   max-width: 150px;
 }
@@ -441,36 +440,53 @@ body {
   display: none;
 }
 
-/* Seek bar: a slim sepia track that fills as the song plays. */
-.seek {
+/* Slim slider line shared by sensitivity and the seek bar: a sepia fill on a
+   faint track, with rounded ends and no handle dot. The filled width is driven
+   by the --pct variable set in JS. Grows a little taller on hover/drag. */
+.range {
   -webkit-appearance: none;
   appearance: none;
-  width: 180px;
   height: 5px;
   border-radius: 999px;
-  background: rgba(58, 52, 44, 0.16);
+  background: linear-gradient(
+    to right,
+    var(--sepia) 0 var(--pct, 0%),
+    rgba(58, 52, 44, 0.16) var(--pct, 0%) 100%
+  );
   cursor: pointer;
   outline: none;
+  transition: height 0.14s ease;
 }
 
-.seek::-webkit-slider-thumb {
+.range:hover,
+.range:active {
+  height: 8px;
+}
+
+/* Invisible thumb: keeps the line draggable but shows no circle. */
+.range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--ink);
-  border: 2px solid var(--paper);
-  box-shadow: 0 1px 4px rgba(58, 52, 44, 0.3);
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
 }
 
-.seek::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--paper);
-  border-radius: 50%;
-  background: var(--ink);
-  box-shadow: 0 1px 4px rgba(58, 52, 44, 0.3);
+.range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
+}
+
+.range::-moz-range-track {
+  background: transparent;
+}
+
+/* Seek bar keeps a fixed width inside the transport pill. */
+.seek {
+  width: 180px;
 }
 
 .seek-time {
@@ -559,6 +575,8 @@ body {
 
 .modal-sub {
   margin-top: 14px;
+  /* Handwritten to match the headline; size and weight kept as before. */
+  font-family: "Caveat", "Segoe Script", cursive;
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--ink-soft);

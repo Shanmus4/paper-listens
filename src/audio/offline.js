@@ -61,6 +61,10 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   detector.minVolumeDecibels = -45;
 
   const events = [];
+  // A coarse loudness envelope (one value per analysis frame) so the level
+  // meter can show the song's dynamics during playback, not just at onsets.
+  const env = [];
+  const envStep = BUFFER_SIZE / sr; // seconds between envelope samples
   const chunk = new Float32Array(BUFFER_SIZE);
   let prevSpectrum = null;
   let pending = null;
@@ -93,6 +97,8 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
       clarity: c || 0,
       flux,
     };
+
+    env.push(frame.rms);
 
     const tSec = start / sr;
     mode.update(frame.chroma, frame.rms);
@@ -130,5 +136,5 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   }
   if (pending) events.push(finalize(pending, mode.getVibrancy()));
 
-  return { duration: audioBuffer.duration, events };
+  return { duration: audioBuffer.duration, events, env, envStep };
 }
