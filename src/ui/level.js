@@ -7,6 +7,14 @@ export function createLevelMeter(canvas) {
   const ctx = canvas.getContext("2d");
   const history = new Array(BARS).fill(0);
 
+  // Logical (CSS) size; scale the backing store for crisp bars on retina.
+  const W = canvas.clientWidth || canvas.width;
+  const H = canvas.clientHeight || canvas.height;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
   // Read the ink color once so the meter matches the paper palette.
   const ink = getComputedStyle(document.body).getPropertyValue("--sepia").trim() || "#8b7355";
 
@@ -18,8 +26,8 @@ export function createLevelMeter(canvas) {
   }
 
   function render() {
-    const w = canvas.width;
-    const h = canvas.height;
+    const w = W;
+    const h = H;
     ctx.clearRect(0, 0, w, h);
 
     const gap = 2;

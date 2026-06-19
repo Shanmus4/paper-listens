@@ -98,6 +98,7 @@ body {
   justify-content: space-between;
   gap: var(--gap);
   padding: var(--gap);
+  padding-top: max(var(--gap), env(safe-area-inset-top));
 }
 
 .controls-wrap {
@@ -186,7 +187,7 @@ body {
 .level-wrap {
   position: absolute;
   left: var(--gap);
-  bottom: var(--gap);
+  bottom: max(var(--gap), env(safe-area-inset-bottom));
   opacity: 0.7;
 }
 
@@ -201,7 +202,7 @@ body {
 .actionbar {
   position: absolute;
   right: var(--gap);
-  bottom: var(--gap);
+  bottom: max(var(--gap), env(safe-area-inset-bottom));
   display: flex;
   gap: 10px;
   pointer-events: auto;

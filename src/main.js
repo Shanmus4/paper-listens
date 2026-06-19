@@ -96,6 +96,8 @@ wireControls({
   onSensitivity: (value) => onsetDetector.setSensitivity(value),
 });
 
-// Dev hook: lets the preview feed synthetic audio frames without a microphone.
-// Harmless in production; nothing calls it unless explicitly invoked.
-window.__pl = { feed: onAudioFrame, paper, watercolor, percussion };
+// Dev hook for local testing only (feed synthetic frames without a mic).
+// Not attached on deployed sites.
+if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+  window.__pl = { feed: onAudioFrame, paper, watercolor, percussion };
+}
