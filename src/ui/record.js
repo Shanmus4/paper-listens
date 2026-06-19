@@ -27,9 +27,14 @@ export function createRecorder(canvas) {
   const supported = () =>
     typeof MediaRecorder !== "undefined" && typeof canvas.captureStream === "function";
 
-  function start() {
+  // Records the canvas, plus the given audio stream (the song or the mic) so
+  // the video has sound. Audio is optional; without it the video is silent.
+  function start(audioStream) {
     if (!supported() || recorder) return false;
     const stream = canvas.captureStream(30);
+    if (audioStream) {
+      for (const track of audioStream.getAudioTracks()) stream.addTrack(track);
+    }
     mime = pickMime();
     recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunks = [];

@@ -49,6 +49,7 @@ let events = []; // [{ t, type, cls, frame, vibrancy, seed }] sorted by time
 let evtPtr = 0; // next event to paint
 let renderedT = 0; // the song time the painting currently reflects (sec)
 let scrubbing = false; // true while the user drags the seek bar
+let scrubTargetT = 0; // latest scrub position, repainted at most once per frame
 
 // ---- Render loop ----
 function frame() {
@@ -57,12 +58,17 @@ function frame() {
   ctx.fillStyle = PAPER_COLOR;
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, 0, 0, width, height);
-  // Drive file playback: paint events up to the current play position, and
-  // keep the seek bar in step (unless the user is dragging it).
-  if (player && currentSource === "file" && !scrubbing) {
-    const pos = player.position();
-    paintToTime(pos, false, now);
-    ui?.setSeekValue(pos);
+  // Drive file playback. While the user scrubs, repaint to the latest drag
+  // position at most once per frame (cheap thanks to the blot cache); when
+  // playing normally, advance with the play position and move the seek bar.
+  if (player && currentSource === "file") {
+    if (scrubbing) {
+      if (scrubTargetT !== renderedT) paintToTime(scrubTargetT, true);
+    } else {
+      const pos = player.position();
+      paintToTime(pos, false, now);
+      ui?.setSeekValue(pos);
+    }
   }
 
   watercolor.render(ctx, now);
@@ -199,6 +205,7 @@ function teardownSource() {
   evtPtr = 0;
   renderedT = 0;
   scrubbing = false;
+  watercolor.purge();
   pending = null;
   onsetDetector = createOnsetDetector({ sensitivity });
   modeTracker = createModeTracker();
@@ -260,6 +267,14 @@ function seekTo(t) {
   ui?.setSeekValue(t);
 }
 
+// The audio currently being heard, so a recording can include sound (the
+// uploaded song, or the live mic). Null if there's nothing to capture.
+function currentAudioStream() {
+  if (currentSource === "file") return player?.audioStream || null;
+  if (currentSource === "mic") return source?.stream || null;
+  return null;
+}
+
 // ---- Wire UI ----
 ui = wireControls({
   onMic: startMic,
@@ -273,11 +288,12 @@ ui = wireControls({
   onGrid: (on) => {
     gridVisible = on;
   },
-  // Dragging the seek bar: preview the painting at that time (audio waits for
-  // release, so scrubbing doesn't machine-gun the audio with restarts).
+  // Dragging the seek bar: just record the target. The render loop repaints to
+  // it once per frame, so rapid drag events don't pile up expensive rebuilds.
+  // Audio waits for release so scrubbing doesn't machine-gun it with restarts.
   onSeek: (t) => {
     scrubbing = true;
-    paintToTime(t, true);
+    scrubTargetT = t;
   },
   // Released the seek bar: jump the audio to match and resume normal playback.
   onSeekCommit: (t) => {
@@ -297,8 +313,9 @@ ui = wireControls({
         sub: "It will be saved as a video to your device. Leave blank to skip.",
         confirmLabel: "Save video",
       });
+      if (name === null) return; // cancelled: discard, don't save
       recorder.download(result.blob, result.ext, name || "paper-listens");
-    } else if (recorder.start()) {
+    } else if (recorder.start(currentAudioStream())) {
       ui.setRecording(true);
     }
   },

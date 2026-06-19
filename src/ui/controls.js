@@ -64,7 +64,11 @@ export function wireControls({
 
   playIcon.innerHTML = ICON_PAUSE;
 
+  let lastFile = null; // the most recently loaded song, for re-entering Upload
+  let currentActive = "mic";
+
   function setActiveSource(which) {
+    currentActive = which;
     srcMic.classList.toggle("seg--on", which === "mic");
     srcFile.classList.toggle("seg--on", which === "file");
     dropZone.hidden = which !== "file";
@@ -89,13 +93,18 @@ export function wireControls({
     setActiveSource("mic");
     onMic?.();
   });
-  srcFile.addEventListener("click", () => setActiveSource("file"));
+  srcFile.addEventListener("click", () => {
+    const wasFile = currentActive === "file";
+    setActiveSource("file");
+    // Coming back from the mic with a song already chosen: reload it so the
+    // transport reappears and it plays again (rather than a dead drop box).
+    if (lastFile && !wasFile) loadFile(lastFile);
+  });
 
   // --- Drop box ---
-  let lastFileName = "";
   function loadFile(file) {
     if (!file) return;
-    lastFileName = file.name;
+    lastFile = file;
     setActiveSource("file");
     dropMain.textContent = `Reading ${file.name}…`;
     onFile?.(file);
@@ -191,7 +200,7 @@ export function wireControls({
     setActiveSource,
     promptName,
     setLoaded() {
-      dropMain.textContent = lastFileName ? `♪ ${lastFileName}` : "Drop a file here, or browse";
+      dropMain.textContent = lastFile ? `♪ ${lastFile.name}` : "Drop a file here, or browse";
     },
     setRecording(on) {
       recordBtn.classList.toggle("recording", on);

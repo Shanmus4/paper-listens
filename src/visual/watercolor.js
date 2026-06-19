@@ -148,9 +148,29 @@ function renderToCanvas(spec, shape) {
 export function createWatercolor(paper) {
   const wet = [];
 
+  // Building a blot's layered shape is the expensive step. Cache the rendered
+  // offscreen canvas by its visual signature so seeking (which re-bakes many
+  // blots at once) reuses them instead of rebuilding every time.
+  const shapeCache = new Map();
+  const SHAPE_CACHE_MAX = 4000;
+  function getShape(spec) {
+    const key =
+      spec.seed.toFixed(5) +
+      "|" + Math.round(spec.radius) +
+      "|" + Math.round(spec.h) +
+      "|" + Math.round(spec.s) +
+      "|" + Math.round(spec.l) +
+      "|" + spec.alpha.toFixed(2);
+    let c = shapeCache.get(key);
+    if (!c) {
+      c = renderToCanvas(spec, buildShape(spec));
+      if (shapeCache.size < SHAPE_CACHE_MAX) shapeCache.set(key, c);
+    }
+    return c;
+  }
+
   function addBlot(spec, nowMs) {
-    const shape = buildShape(spec);
-    const { cv, half } = renderToCanvas(spec, shape);
+    const { cv, half } = getShape(spec);
     wet.push({ cv, half, x: spec.x, y: spec.y, born: nowMs });
   }
 
@@ -181,14 +201,20 @@ export function createWatercolor(paper) {
   // Paint a blot straight into the paper buffer, fully dry, no animation.
   // Used when rebuilding the painting at a seek position.
   function bake(spec) {
-    const shape = buildShape(spec);
-    const { cv, half } = renderToCanvas(spec, shape);
+    const { cv, half } = getShape(spec);
     stamp(paper.state.bctx, { cv, half, x: spec.x, y: spec.y }, 1);
   }
 
+  // Drop wet blots but keep the shape cache (used when rebuilding on seek).
   function clear() {
     wet.length = 0;
   }
 
-  return { addBlot, bake, render, clear, count: () => wet.length };
+  // Drop everything, including the cache (used when loading a new source).
+  function purge() {
+    wet.length = 0;
+    shapeCache.clear();
+  }
+
+  return { addBlot, bake, render, clear, purge, count: () => wet.length };
 }

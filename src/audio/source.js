@@ -61,6 +61,10 @@ export async function createFilePlayer(file, { onEnded } = {}) {
   const audioBuffer = await audioContext.decodeAudioData(arrayBuf);
   const duration = audioBuffer.duration;
 
+  // A tap so recordings can include the song's audio. Each playback node is
+  // connected to both the speakers and this destination.
+  const streamDest = audioContext.createMediaStreamDestination();
+
   let node = null;
   let offset = 0; // playback position (sec) at the moment `node` started
   let startCtxTime = 0; // audioContext.currentTime when `node` started
@@ -91,7 +95,8 @@ export async function createFilePlayer(file, { onEnded } = {}) {
     offset = clamp(t);
     node = audioContext.createBufferSource();
     node.buffer = audioBuffer;
-    node.connect(audioContext.destination);
+    node.connect(audioContext.destination); // speakers
+    node.connect(streamDest); // recording tap
     node.onended = () => {
       if (node && node._intentional) return; // we stopped it on purpose
       offset = duration;
@@ -107,6 +112,7 @@ export async function createFilePlayer(file, { onEnded } = {}) {
     audioContext,
     audioBuffer,
     duration,
+    audioStream: streamDest.stream,
     position,
     isEnded: () => ended,
     start() {

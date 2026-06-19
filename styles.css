@@ -128,12 +128,12 @@ body {
   cursor: pointer;
   backdrop-filter: blur(6px);
   box-shadow: var(--shadow);
-  transition: transform 0.12s ease, background 0.12s ease;
+  transition: background 0.14s ease, border-color 0.14s ease;
 }
 
 .pill:hover {
-  transform: translateY(-1px);
-  background: rgba(248, 243, 234, 0.95);
+  background: rgba(244, 237, 225, 0.98);
+  border-color: rgba(58, 52, 44, 0.24);
 }
 
 .caret {
@@ -218,6 +218,59 @@ body {
   background: var(--paper);
   color: var(--ink);
   box-shadow: 0 1px 3px rgba(58, 52, 44, 0.14);
+}
+
+/* Toggle switch (matches the paper UI), used for the grid overlay. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(58, 52, 44, 0.2);
+  transition: background 0.22s ease;
+}
+
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 3px rgba(58, 52, 44, 0.3);
+  transition: transform 0.22s ease;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--sepia);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(18px);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--sepia);
+  outline-offset: 2px;
 }
 
 /* Drop box for file upload, inside the controls panel. */
@@ -322,16 +375,17 @@ body {
   cursor: pointer;
   backdrop-filter: blur(6px);
   box-shadow: var(--shadow);
-  transition: transform 0.12s ease, background 0.12s ease;
+  transition: background 0.14s ease, border-color 0.14s ease;
 }
 
+/* Subtle color change on hover, no movement. */
 .action:hover {
-  transform: translateY(-1px);
-  background: rgba(248, 243, 234, 0.95);
+  background: rgba(244, 237, 225, 0.98);
+  border-color: rgba(58, 52, 44, 0.24);
 }
 
 .action:active {
-  transform: translateY(0);
+  background: rgba(236, 226, 210, 1);
 }
 
 .glyph {
@@ -442,7 +496,7 @@ body {
   box-shadow: 0 4px 14px rgba(58, 52, 44, 0.18), 0 1px 3px rgba(58, 52, 44, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(6px);
-  transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+  transition: background 0.14s ease, border-color 0.14s ease;
 }
 
 /* Optically centre the play triangle (it reads left-heavy when geometrically centred). */
@@ -454,14 +508,12 @@ body {
 }
 
 .transport-btn:hover {
-  transform: translateY(-1px);
-  background: rgba(248, 243, 234, 0.95);
-  box-shadow: 0 6px 18px rgba(58, 52, 44, 0.22), 0 1px 3px rgba(58, 52, 44, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  background: rgba(244, 237, 225, 0.98);
+  border-color: rgba(58, 52, 44, 0.24);
 }
 
 .transport-btn:active {
-  transform: translateY(0);
+  background: rgba(236, 226, 210, 1);
 }
 
 /* ---------- Save modal ---------- */
