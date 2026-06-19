@@ -12,7 +12,13 @@ import Meyda from "https://esm.sh/meyda@5";
 // fine enough for responsive onsets, coarse enough for stable chroma.
 const BUFFER_SIZE = 1024;
 
-const FEATURE_EXTRACTORS = ["rms", "spectralCentroid", "chroma", "amplitudeSpectrum"];
+const FEATURE_EXTRACTORS = [
+  "rms",
+  "spectralCentroid",
+  "spectralFlatness",
+  "chroma",
+  "amplitudeSpectrum",
+];
 
 export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
   let prevSpectrum = null;
@@ -42,6 +48,8 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
         // Meyda returns the centroid as an FFT bin index; convert to Hz so
         // downstream code can reason in musical terms.
         centroidHz: ((features.spectralCentroid || 0) * audioContext.sampleRate) / BUFFER_SIZE,
+        // 0 = tonal/pitched, ~1 = noisy/percussive.
+        flatness: features.spectralFlatness || 0,
         chroma: features.chroma || new Array(12).fill(0),
         flux,
         sampleRate: audioContext.sampleRate,

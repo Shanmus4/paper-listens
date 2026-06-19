@@ -48,6 +48,14 @@ function frame() {
 requestAnimationFrame(frame);
 
 // ---- Audio frame -> painting ----
+// We classify from the SUSTAIN, not the attack. A plucked/struck onset starts
+// with a broadband transient (no clear pitch); the note only emerges a few
+// frames later. So on an onset we gather the next few frames, average them,
+// then decide pitched vs percussive and paint.
+const CLASSIFY_FRAMES = 3; // ~70ms of sustain after the attack
+const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+let pending = null;
+
 function onAudioFrame(f) {
   levelMeter.push(f.rms);
   modeTracker.update(f.chroma, f.rms);
@@ -55,17 +63,43 @@ function onAudioFrame(f) {
 
   const now = performance.now();
   const onset = onsetDetector.process(f.flux, f.rms, now);
-  if (!onset) return;
 
-  const cls = classifyOnset(f);
+  if (pending) {
+    for (let i = 0; i < 12; i++) pending.chroma[i] += f.chroma[i];
+    pending.centroidSum += f.centroidHz;
+    pending.flatSum += f.flatness || 0;
+    pending.rmsMax = Math.max(pending.rmsMax, f.rms);
+    if (++pending.count >= CLASSIFY_FRAMES) finalizeOnset(now);
+    return;
+  }
+
+  if (onset) {
+    // Begin gathering sustain frames; the attack frame's chroma is skipped.
+    pending = { count: 0, chroma: new Array(12).fill(0), centroidSum: 0, flatSum: 0, rmsMax: f.rms };
+  }
+}
+
+function finalizeOnset(now) {
+  const p = pending;
+  pending = null;
+  const n = p.count || 1;
+  const frame = {
+    rms: p.rmsMax,
+    centroidHz: p.centroidSum / n,
+    flatness: p.flatSum / n,
+    chroma: p.chroma.map((v) => v / n),
+  };
+
+  const cls = classifyOnset(frame);
+  if (DEBUG) console.log(`[onset] ${cls.type}`, cls.diag);
+
   const dims = { width: paper.state.width, height: paper.state.height };
-
   if (cls.type === "pitched") {
-    for (const blot of mapPitched(cls, f, modeTracker.getVibrancy(), dims)) {
+    for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
       watercolor.addBlot(blot, now);
     }
   } else {
-    percussion.addSplat(mapPercussive(cls, f, dims), now);
+    percussion.addSplat(mapPercussive(cls, frame, dims), now);
   }
 }
 

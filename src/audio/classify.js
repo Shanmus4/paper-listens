@@ -10,7 +10,13 @@
 // How peaked the chroma must be to count as pitched. A pure note sits ~3+;
 // a flat drum spectrum sits near 1. Dense chords lower this, so we keep the
 // bar modest. Tunable against real audio.
-const PEAKY_THRESHOLD = 1.7;
+const PEAKY_THRESHOLD = 1.6;
+
+// Spectral flatness clearly separates tonal from noisy regardless of chroma:
+// well below FLAT_TONAL is definitely a pitch; well above FLAT_NOISE is
+// definitely a drum/noise hit. Between them we fall back to chroma peakiness.
+const FLAT_TONAL = 0.08;
+const FLAT_NOISE = 0.3;
 
 // A pitch class is "present" if it reaches this fraction of the strongest bin.
 // 0.6 keeps single notes clean (rejects spectral-leakage neighbours) while
@@ -26,7 +32,7 @@ function drumFromCentroid(hz) {
 }
 
 export function classifyOnset(frame) {
-  const { chroma, centroidHz } = frame;
+  const { chroma, centroidHz, flatness = 0 } = frame;
 
   let sum = 0;
   let max = 0;
@@ -35,15 +41,20 @@ export function classifyOnset(frame) {
     if (v > max) max = v;
   }
 
-  if (sum <= 0 || max <= 0) {
-    return { type: "percussive", drum: drumFromCentroid(centroidHz), centroidHz };
-  }
-
   const mean = sum / 12;
-  const peakiness = max / mean; // 1 = flat, higher = more tonal
+  const peakiness = max > 0 ? max / mean : 0; // 1 = flat, higher = more tonal
+  const diag = { peakiness: +peakiness.toFixed(2), flatness: +flatness.toFixed(3), centroidHz: Math.round(centroidHz) };
 
-  if (peakiness < PEAKY_THRESHOLD) {
-    return { type: "percussive", drum: drumFromCentroid(centroidHz), centroidHz };
+  // Decide tonal vs noisy. Flatness gives a confident verdict at the extremes;
+  // in the ambiguous middle we trust chroma peakiness.
+  let tonal;
+  if (sum <= 0 || max <= 0) tonal = false;
+  else if (flatness <= FLAT_TONAL) tonal = true;
+  else if (flatness >= FLAT_NOISE) tonal = false;
+  else tonal = peakiness >= PEAKY_THRESHOLD;
+
+  if (!tonal) {
+    return { type: "percussive", drum: drumFromCentroid(centroidHz), centroidHz, diag };
   }
 
   // Pitched: collect the dominant pitch classes relative to the strongest.
@@ -54,9 +65,5 @@ export function classifyOnset(frame) {
   }
   pitches.sort((a, b) => b.energy - a.energy);
 
-  return {
-    type: "pitched",
-    pitches: pitches.slice(0, MAX_PITCHES),
-    centroidHz,
-  };
+  return { type: "pitched", pitches: pitches.slice(0, MAX_PITCHES), centroidHz, diag };
 }
