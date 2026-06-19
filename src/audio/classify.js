@@ -1,29 +1,20 @@
-// classify.js — decides *what* an onset is.
+// classify.js — decides what an onset is, biased toward "pitched".
 //
-// Given the feature frame at an onset, we split into two visual languages:
-//   - pitched (note / chord / vocal): the chroma vector has clear peaks.
-//     We return the dominant pitch classes so harmony paints in color.
-//   - percussive (kick / snare / hi-hat): the chroma is roughly flat (energy
-//     spread across all 12 bins). We classify the drum by spectral centroid
-//     so rhythm paints as monochrome ink.
+// Real instruments (a strummed chord, a plucked string) have a noisy attack and
+// spread energy across many notes, which used to fool a chroma-only test into
+// calling them drums. So we lead with pitch clarity (McLeod) and only declare
+// an onset percussive when it is noise-like on every count: no clear pitch,
+// spectrally flat-ish-noisy, and an unpeaked chroma. Everything else paints in
+// color. Drums (kick/snare/hat/clap) still fall through to the noisy branch.
 
-// How peaked the chroma must be to count as pitched. A pure note sits ~3+;
-// a flat drum spectrum sits near 1. Dense chords lower this, so we keep the
-// bar modest. Tunable against real audio.
-const PEAKY_THRESHOLD = 1.6;
+import { freqToNote, centroidToOctave } from "./notes.js";
 
-// Spectral flatness clearly separates tonal from noisy regardless of chroma:
-// well below FLAT_TONAL is definitely a pitch; well above FLAT_NOISE is
-// definitely a drum/noise hit. Between them we fall back to chroma peakiness.
-const FLAT_TONAL = 0.08;
-const FLAT_NOISE = 0.3;
-
-// A pitch class is "present" if it reaches this fraction of the strongest bin.
-// 0.6 keeps single notes clean (rejects spectral-leakage neighbours) while
-// still capturing the 3-4 real tones of a chord.
-const RELATIVE_PICK = 0.6;
-
-const MAX_PITCHES = 4;
+const PEAKY_THRESHOLD = 1.6; // chroma max/mean below this is "unpeaked"
+const FLAT_NOISE = 0.3; // spectral flatness above this is noisy
+const CLARITY_MIN = 0.5; // pitch clarity below this means "no clear pitch"
+const CLARITY_HIGH = 0.82; // at/above this we trust the exact detected note
+const RELATIVE_PICK = 0.6; // chord-tone pick threshold, relative to strongest
+const MAX_NOTES = 4;
 
 function drumFromCentroid(hz) {
   if (hz < 1200) return "kick";
@@ -32,7 +23,7 @@ function drumFromCentroid(hz) {
 }
 
 export function classifyOnset(frame) {
-  const { chroma, centroidHz, flatness = 0 } = frame;
+  const { chroma, centroidHz, flatness = 0, clarity = 0, pitchHz = 0 } = frame;
 
   let sum = 0;
   let max = 0;
@@ -40,30 +31,42 @@ export function classifyOnset(frame) {
     sum += v;
     if (v > max) max = v;
   }
-
   const mean = sum / 12;
-  const peakiness = max > 0 ? max / mean : 0; // 1 = flat, higher = more tonal
-  const diag = { peakiness: +peakiness.toFixed(2), flatness: +flatness.toFixed(3), centroidHz: Math.round(centroidHz) };
+  const peakiness = max > 0 ? max / mean : 0;
+  const diag = {
+    peakiness: +peakiness.toFixed(2),
+    flatness: +flatness.toFixed(3),
+    clarity: +clarity.toFixed(2),
+    pitchHz: Math.round(pitchHz),
+    centroidHz: Math.round(centroidHz),
+  };
 
-  // Decide tonal vs noisy. Flatness gives a confident verdict at the extremes;
-  // in the ambiguous middle we trust chroma peakiness.
-  let tonal;
-  if (sum <= 0 || max <= 0) tonal = false;
-  else if (flatness <= FLAT_TONAL) tonal = true;
-  else if (flatness >= FLAT_NOISE) tonal = false;
-  else tonal = peakiness >= PEAKY_THRESHOLD;
-
-  if (!tonal) {
+  // Percussive only when clearly noise-like on all counts.
+  const noisy = clarity < CLARITY_MIN && flatness > FLAT_NOISE && peakiness < PEAKY_THRESHOLD;
+  if (sum <= 0 || max <= 0 || noisy) {
     return { type: "percussive", drum: drumFromCentroid(centroidHz), centroidHz, diag };
   }
 
-  // Pitched: collect the dominant pitch classes relative to the strongest.
-  const pickThreshold = max * RELATIVE_PICK;
-  const pitches = [];
-  for (let pc = 0; pc < 12; pc++) {
-    if (chroma[pc] >= pickThreshold) pitches.push({ pc, energy: chroma[pc] });
+  // Pitched. A clear fundamental gives the exact note+octave; otherwise treat
+  // it as polyphonic and place the dominant pitch classes in one register.
+  let notes;
+  if (clarity >= CLARITY_HIGH && pitchHz > 0) {
+    const { pc, octave } = freqToNote(pitchHz);
+    notes = [{ pc, octave, energy: 1 }];
+  } else {
+    const octave = centroidToOctave(centroidHz);
+    const pickThreshold = max * RELATIVE_PICK;
+    notes = [];
+    for (let pc = 0; pc < 12; pc++) {
+      if (chroma[pc] >= pickThreshold) notes.push({ pc, octave, energy: chroma[pc] / max });
+    }
+    notes.sort((a, b) => b.energy - a.energy);
+    notes = notes.slice(0, MAX_NOTES);
+    if (notes.length === 0 && pitchHz > 0) {
+      const n = freqToNote(pitchHz);
+      notes = [{ pc: n.pc, octave: n.octave, energy: 1 }];
+    }
   }
-  pitches.sort((a, b) => b.energy - a.energy);
 
-  return { type: "pitched", pitches: pitches.slice(0, MAX_PITCHES), centroidHz, diag };
+  return { type: "pitched", notes, centroidHz, diag };
 }

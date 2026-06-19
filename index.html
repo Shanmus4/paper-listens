@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="description" content="Play your music, the paper is listening. Turn sound into watercolor." />
+    <meta name="description" content="Play your music, the paper is listening. Turn sound into ink." />
     <meta name="theme-color" content="#f4ede1" />
     <title>Paper Listens</title>
 
@@ -21,14 +21,11 @@
   <body>
     <!-- The painting surface fills the whole viewport, behind everything. -->
     <canvas id="paper" aria-label="Your painting"></canvas>
-
-    <!-- Paper grain + vignette overlay (pure CSS, sits above the canvas). -->
     <div class="paper-grain" aria-hidden="true"></div>
 
-    <!-- ============ STAGE: the live painting view ============ -->
-    <div id="stage" class="stage" hidden>
+    <div id="stage" class="stage">
       <header class="topbar">
-        <h1 class="headline">
+        <h1 id="headline" class="headline">
           play your music,<br />
           the paper is listening
           <span class="dots">..</span>
@@ -40,32 +37,37 @@
             <span class="caret" aria-hidden="true">▾</span>
           </button>
           <div id="controlsPanel" class="controls-panel" hidden>
+            <div class="panel-row">
+              <span class="panel-label">Source</span>
+              <div class="segmented" role="group" aria-label="Audio source">
+                <button id="srcMic" class="seg seg--on" type="button">Microphone</button>
+                <button id="srcFile" class="seg" type="button">Upload file</button>
+              </div>
+            </div>
+            <div id="fileRow" class="panel-row file-row" hidden>
+              <span class="panel-label">File</span>
+              <span id="fileName" class="file-name">none</span>
+            </div>
             <label class="panel-row">
-              <span>Source</span>
-              <select id="sourceSelect">
-                <option value="mic" selected>Microphone</option>
-                <option value="file" disabled>Upload file (soon)</option>
-                <option value="spotify" disabled>Spotify link (soon)</option>
-              </select>
-            </label>
-            <label class="panel-row">
-              <span>Sensitivity</span>
+              <span class="panel-label">Sensitivity</span>
               <input id="sensitivity" type="range" min="0" max="100" value="50" />
             </label>
           </div>
+          <!-- Hidden native input, triggered by the Upload file button. -->
+          <input id="fileInput" type="file" accept="audio/*" hidden />
         </div>
       </header>
 
-      <!-- Bottom-left: live input level so the user knows it is listening. -->
+      <!-- A small inline hint, shown only if the mic is unavailable/denied. -->
+      <p id="micHint" class="mic-hint" hidden>
+        Microphone blocked. Allow it in your browser, or upload a file from Controls.
+      </p>
+
       <div class="level-wrap" aria-hidden="true">
         <canvas id="level" width="180" height="48"></canvas>
       </div>
 
-      <!-- Bottom-right: the paper-card control bar. -->
       <div class="actionbar">
-        <button id="backBtn" class="action" type="button">
-          <span class="glyph" aria-hidden="true">‹</span> Back
-        </button>
         <button id="clearBtn" class="action" type="button">
           <span class="glyph" aria-hidden="true">○</span> New Sheet
         </button>
@@ -73,19 +75,6 @@
           <span class="glyph" aria-hidden="true">↓</span> Save
         </button>
       </div>
-    </div>
-
-    <!-- ============ GATE: first-load landing / permission ============ -->
-    <div id="gate" class="gate">
-      <h1 class="headline headline--gate">
-        play your music,<br />
-        the paper is listening
-        <span class="dots">..</span>
-      </h1>
-      <button id="startBtn" class="start-btn" type="button">tap to listen</button>
-      <p id="gateHint" class="gate-hint">
-        Paper Listens will ask to use your microphone. Nothing is recorded or sent anywhere.
-      </p>
     </div>
 
     <script type="module" src="./src/main.js"></script>

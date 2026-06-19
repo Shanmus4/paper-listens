@@ -1,10 +1,10 @@
-// main.js — entry point. Boots the canvas, wires the UI, owns the audio
-// pipeline, and runs the render loop that turns onsets into watercolor.
+// main.js — entry point. Boots the canvas, auto-starts listening, owns the
+// audio pipeline, and runs the render loop that turns onsets into ink.
 
 import { createPaper } from "./visual/canvas.js";
 import { wireControls } from "./ui/controls.js";
 import { createLevelMeter } from "./ui/level.js";
-import { createMicSource } from "./audio/source.js";
+import { createMicSource, createFileSource } from "./audio/source.js";
 import { createAnalyzer } from "./audio/features.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { classifyOnset } from "./audio/classify.js";
@@ -15,45 +15,41 @@ import { createPercussion } from "./visual/percussion.js";
 
 const paperEl = document.getElementById("paper");
 const paper = createPaper(paperEl);
-
-const levelEl = document.getElementById("level");
-const levelMeter = createLevelMeter(levelEl);
+const levelMeter = createLevelMeter(document.getElementById("level"));
+const headline = document.getElementById("headline");
+const micHint = document.getElementById("micHint");
 
 const watercolor = createWatercolor(paper);
 const percussion = createPercussion(paper);
-const onsetDetector = createOnsetDetector({ sensitivity: 0.5 });
-const modeTracker = createModeTracker();
 
 const PAPER_COLOR =
   getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#f4ede1";
+const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 
-let micSource = null;
+// Audio state. onsetDetector/modeTracker are recreated when the source changes.
+let onsetDetector = createOnsetDetector({ sensitivity: 0.5 });
+let modeTracker = createModeTracker();
+let sensitivity = 0.5;
+let source = null;
 let analyzer = null;
+let firstPaint = false;
 
 // ---- Render loop ----
 function frame() {
   const { ctx, buffer, width, height } = paper.state;
   const now = performance.now();
-
   ctx.fillStyle = PAPER_COLOR;
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, 0, 0, width, height);
-
-  watercolor.render(ctx, now); // wet blots over the dried paper
-  percussion.render(ctx, now); // ink splatters + kick pulse
-
+  watercolor.render(ctx, now);
+  percussion.render(ctx, now);
   levelMeter.render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-// ---- Audio frame -> painting ----
-// We classify from the SUSTAIN, not the attack. A plucked/struck onset starts
-// with a broadband transient (no clear pitch); the note only emerges a few
-// frames later. So on an onset we gather the next few frames, average them,
-// then decide pitched vs percussive and paint.
-const CLASSIFY_FRAMES = 3; // ~70ms of sustain after the attack
-const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+// ---- Onset -> classify -> paint, classifying from the SUSTAIN not the attack.
+const CLASSIFY_FRAMES = 3;
 let pending = null;
 
 function onAudioFrame(f) {
@@ -69,13 +65,24 @@ function onAudioFrame(f) {
     pending.centroidSum += f.centroidHz;
     pending.flatSum += f.flatness || 0;
     pending.rmsMax = Math.max(pending.rmsMax, f.rms);
+    if ((f.clarity || 0) > pending.bestClarity) {
+      pending.bestClarity = f.clarity;
+      pending.bestPitch = f.pitchHz;
+    }
     if (++pending.count >= CLASSIFY_FRAMES) finalizeOnset(now);
     return;
   }
 
   if (onset) {
-    // Begin gathering sustain frames; the attack frame's chroma is skipped.
-    pending = { count: 0, chroma: new Array(12).fill(0), centroidSum: 0, flatSum: 0, rmsMax: f.rms };
+    pending = {
+      count: 0,
+      chroma: new Array(12).fill(0),
+      centroidSum: 0,
+      flatSum: 0,
+      rmsMax: f.rms,
+      bestClarity: f.clarity || 0,
+      bestPitch: f.pitchHz || 0,
+    };
   }
 }
 
@@ -87,6 +94,8 @@ function finalizeOnset(now) {
     rms: p.rmsMax,
     centroidHz: p.centroidSum / n,
     flatness: p.flatSum / n,
+    clarity: p.bestClarity,
+    pitchHz: p.bestPitch,
     chroma: p.chroma.map((v) => v / n),
   };
 
@@ -101,37 +110,83 @@ function finalizeOnset(now) {
   } else {
     percussion.addSplat(mapPercussive(cls, frame, dims), now);
   }
+  fadeHeadline();
 }
 
-// ---- Audio start / stop ----
-async function startAudio() {
-  micSource = await createMicSource();
-  analyzer = createAnalyzer(micSource, onAudioFrame);
-  analyzer.start();
+function fadeHeadline() {
+  if (firstPaint) return;
+  firstPaint = true;
+  headline.classList.add("faded");
 }
 
-function stopAudio() {
+// ---- Source management ----
+function teardownSource() {
   analyzer?.stop();
-  micSource?.stop();
+  source?.stop();
   analyzer = null;
-  micSource = null;
+  source = null;
+  pending = null;
+  onsetDetector = createOnsetDetector({ sensitivity });
+  modeTracker = createModeTracker();
 }
 
-// ---- Wire the interface ----
+async function startMic() {
+  teardownSource();
+  try {
+    source = await createMicSource();
+    analyzer = createAnalyzer(source, onAudioFrame);
+    analyzer.start();
+    source.start();
+    micHint.hidden = true;
+  } catch (err) {
+    console.error("[paper-listens] mic failed:", err);
+    micHint.hidden = false;
+  }
+}
+
+async function startFile(file) {
+  teardownSource();
+  try {
+    source = await createFileSource(file, { onEnded: () => {} });
+    analyzer = createAnalyzer(source, onAudioFrame);
+    analyzer.start();
+    source.start();
+    micHint.hidden = true;
+  } catch (err) {
+    console.error("[paper-listens] file failed:", err);
+    micHint.hidden = false;
+    micHint.textContent = "Could not read that audio file. Try another one.";
+  }
+}
+
+// ---- Wire UI ----
 wireControls({
-  onStart: startAudio,
-  onBack: stopAudio,
+  onMic: startMic,
+  onFile: startFile,
   onClear: () => {
     paper.clear();
     watercolor.clear();
     percussion.clear();
+    firstPaint = false;
+    headline.classList.remove("faded");
   },
   onSave: () => paper.save(),
-  onSensitivity: (value) => onsetDetector.setSensitivity(value),
+  onSensitivity: (value) => {
+    sensitivity = value;
+    onsetDetector.setSensitivity(value);
+  },
 });
 
-// Dev hook for local testing only (feed synthetic frames without a mic).
-// Not attached on deployed sites.
-if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+// iOS/Safari: resume a suspended context on the first user gesture.
+function resumeOnGesture() {
+  if (source?.audioContext?.state === "suspended") source.audioContext.resume();
+}
+document.addEventListener("pointerdown", resumeOnGesture, { once: false });
+
+// Jump straight in: start listening on load (browser shows its mic prompt).
+startMic();
+
+// Dev hook for local testing without a mic.
+if (DEBUG) {
   window.__pl = { feed: onAudioFrame, paper, watercolor, percussion };
 }

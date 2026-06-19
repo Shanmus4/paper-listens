@@ -1,21 +1,18 @@
 // synesthesia.js — the deterministic bridge from sound to paint.
 //
-// Pure functions only: given a classified onset and the current vibrancy, it
-// returns *what* to paint (color, position, size). The watercolor/percussion
-// renderers decide *how*. Keeping it pure means the same note always yields
-// the same anchor and color — the synesthesia is reproducible, not random.
+// Pure functions only. A note maps to a fixed cell on an invisible grid:
+// columns are the 12 pitch classes (C..B, left to right), rows are octaves
+// (high at the top, low at the bottom). So every note has one home on the
+// page, and the same note always lands there. Color is fixed per pitch class.
 
 export const PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-// Seat the 12 pitch classes around a wheel by the circle of fifths, so
-// musically related notes sit next to each other. Each note has one fixed seat.
-const FIFTHS = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]; // C G D A E B F# C# G# D# A# F
-const SEAT = new Array(12);
-FIFTHS.forEach((pc, i) => (SEAT[pc] = i));
+const OCT_MIN = 1; // C1 at the bottom
+const OCT_MAX = 7; // B7 at the top
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-// Spectral centroid (Hz) -> 0..1 brightness. Log scale matches pitch perception.
+// Spectral centroid (Hz) -> 0..1 brightness. Log scale matches pitch hearing.
 function brightness(centroidHz) {
   const lo = 200;
   const hi = 6000;
@@ -23,61 +20,69 @@ function brightness(centroidHz) {
   return clamp(Math.log2(hz / lo) / Math.log2(hi / lo), 0, 1);
 }
 
-// Pitch class -> fixed anchor point on the canvas (the note's "seat").
-export function noteAnchor(pc, width, height) {
-  const angle = (SEAT[pc] / 12) * Math.PI * 2 - Math.PI / 2; // 12 o'clock = C
-  const radius = Math.min(width, height) * 0.34;
+// Note (pitch class + octave) -> fixed cell center on the canvas grid.
+export function gridCell(pc, octave, width, height) {
+  const mx = width * 0.07; // side margins
+  const myTop = height * 0.16; // headroom (headline area; it fades on first paint)
+  const myBot = height * 0.1;
+  const cols = 12;
+  const rows = OCT_MAX - OCT_MIN + 1;
+  const cw = (width - 2 * mx) / cols;
+  const ch = (height - myTop - myBot) / rows;
+  const oct = clamp(octave, OCT_MIN, OCT_MAX);
+  const row = OCT_MAX - oct; // high octave -> top
   return {
-    x: width / 2 + Math.cos(angle) * radius,
-    y: height / 2 + Math.sin(angle) * radius,
+    x: mx + (pc + 0.5) * cw,
+    y: myTop + (row + 0.5) * ch,
+    cellW: cw,
+    cellH: ch,
   };
 }
 
-// Pitch class -> color. Hue is fixed per note; vibrancy (mode) and brightness
-// (centroid) shape saturation and lightness.
-export function noteColor(pc, vibrancy, centroidHz) {
+// Pitch class -> color. Hue is fixed per note; vibrancy (mode), octave, and
+// brightness shape saturation and lightness (higher/brighter = lighter).
+export function noteColor(pc, octave, vibrancy, centroidHz) {
   const hue = pc * 30; // C=0(red) ... B=330
   const bright = brightness(centroidHz);
+  const octT = clamp((octave - OCT_MIN) / (OCT_MAX - OCT_MIN), 0, 1);
   const sat = clamp(70 * vibrancy, 22, 96);
-  const light = clamp(40 + (vibrancy - 1) * 14 + bright * 12, 26, 70);
+  const light = clamp(36 + (vibrancy - 1) * 12 + bright * 10 + octT * 14, 24, 72);
   return { h: hue, s: sat, l: light };
 }
 
-// Loudness -> blot footprint. Returns a normalized energy and concrete-ish
-// size/alpha the renderer scales against canvas size.
 function intensity(rms) {
   const e = clamp(Math.sqrt(rms) * 2.2, 0.08, 1);
-  return { e, alpha: 0.22 + e * 0.4 };
+  return { e, alpha: 0.24 + e * 0.42 };
 }
 
-// Build blot specs for a pitched onset (one per dominant pitch class).
+// Build ink-blot specs for a pitched onset (one per detected note).
 export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random) {
   const { width, height } = dims;
   const minDim = Math.min(width, height);
   const { e, alpha } = intensity(frame.rms);
   const bright = brightness(frame.centroidHz);
 
-  return classified.pitches.map(({ pc, energy }) => {
-    const anchor = noteAnchor(pc, width, height);
-    const color = noteColor(pc, vibrancy, frame.centroidHz);
-    // Strongest pitch paints biggest; quieter chord tones a touch smaller.
-    const radius = minDim * (0.025 + e * 0.06) * (0.7 + 0.3 * energy);
+  return classified.notes.map(({ pc, octave, energy }) => {
+    const cell = gridCell(pc, octave, width, height);
+    const color = noteColor(pc, octave, vibrancy, frame.centroidHz);
+    // Keep blots within their cell-ish footprint so the grid reads cleanly.
+    const radius = Math.min(minDim * (0.02 + e * 0.045), cell.cellW * 0.5) * (0.7 + 0.3 * energy);
     return {
-      x: anchor.x,
-      y: anchor.y,
+      x: cell.x,
+      y: cell.y,
       h: color.h,
       s: color.s,
       l: color.l,
       radius,
       alpha,
-      edge: 0.35 + bright * 0.45, // brighter sound -> crisper edge
+      edge: 0.35 + bright * 0.45,
       seed: rng(),
     };
   });
 }
 
-// Build a splatter spec for a percussive onset. Position from centroid:
-// low/dark -> lower-left (kicks), high/bright -> upper-right (cymbals).
+// Percussive onset -> monochrome ink splatter. Position from centroid:
+// low/dark -> lower-left, high/bright -> upper-right.
 export function mapPercussive(classified, frame, dims, rng = Math.random) {
   const { width, height } = dims;
   const minDim = Math.min(width, height);
@@ -88,8 +93,7 @@ export function mapPercussive(classified, frame, dims, rng = Math.random) {
   const x = width * clamp(0.15 + bright * 0.7 + jitter(), 0.05, 0.95);
   const y = height * clamp(0.85 - bright * 0.7 + jitter(), 0.05, 0.95);
 
-  // Kicks big and heavy, hats small and fine.
-  const sizeByDrum = { kick: 0.09, snare: 0.06, hihat: 0.035 };
+  const sizeByDrum = { kick: 0.085, snare: 0.055, hihat: 0.032 };
   const radius = minDim * (sizeByDrum[classified.drum] || 0.05) * (0.6 + e * 0.6);
 
   return {
@@ -98,7 +102,7 @@ export function mapPercussive(classified, frame, dims, rng = Math.random) {
     drum: classified.drum,
     radius,
     alpha: 0.25 + e * 0.45,
-    count: classified.drum === "hihat" ? 10 : 6, // hats = finer spray
+    count: classified.drum === "hihat" ? 10 : 6,
     seed: rng(),
   };
 }

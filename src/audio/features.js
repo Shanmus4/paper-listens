@@ -7,6 +7,7 @@
 // Meyda feature across versions.
 
 import Meyda from "https://esm.sh/meyda@5";
+import { PitchDetector } from "https://esm.sh/pitchy@4";
 
 // 1024 samples ≈ 23ms per frame at 44.1kHz (~43 frames/sec). Good balance:
 // fine enough for responsive onsets, coarse enough for stable chroma.
@@ -18,10 +19,15 @@ const FEATURE_EXTRACTORS = [
   "spectralFlatness",
   "chroma",
   "amplitudeSpectrum",
+  "buffer", // time-domain signal, for pitch detection
 ];
 
 export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
   let prevSpectrum = null;
+  // McLeod pitch detector: gives a fundamental frequency + a 0..1 clarity that
+  // is high for clear single pitches and low for noise/percussion.
+  const pitchDetector = PitchDetector.forFloat32Array(BUFFER_SIZE);
+  pitchDetector.minVolumeDecibels = -45; // ignore near-silence
 
   const analyzer = Meyda.createMeydaAnalyzer({
     audioContext,
@@ -43,6 +49,15 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
       }
       prevSpectrum = spectrum;
 
+      // Fundamental pitch + clarity from the time-domain buffer.
+      let pitchHz = 0;
+      let clarity = 0;
+      if (features.buffer) {
+        const [p, c] = pitchDetector.findPitch(features.buffer, audioContext.sampleRate);
+        pitchHz = p || 0;
+        clarity = c || 0;
+      }
+
       onFrame({
         rms: features.rms || 0,
         // Meyda returns the centroid as an FFT bin index; convert to Hz so
@@ -51,6 +66,8 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
         // 0 = tonal/pitched, ~1 = noisy/percussive.
         flatness: features.spectralFlatness || 0,
         chroma: features.chroma || new Array(12).fill(0),
+        pitchHz,
+        clarity,
         flux,
         sampleRate: audioContext.sampleRate,
       });
