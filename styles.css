@@ -1,0 +1,48 @@
+/* Paper Listens — base styles.
+   The full UI shell replaces this placeholder in the next step. */
+
+:root {
+  --paper: #f4ede1;
+  --ink: #3a342c;
+  --sepia: #8b7355;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6vw;
+}
+
+.headline {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: clamp(2rem, 6vw, 4rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.subtle {
+  margin-top: 1.5rem;
+  color: var(--sepia);
+  font-size: 1rem;
+}
