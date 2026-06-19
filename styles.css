@@ -340,10 +340,14 @@ body {
   color: var(--sepia);
 }
 
-/* Record button: dot turns red and pulses while recording. */
+/* Record button: a solid red dot that pulses while recording. A real circle
+   (not a glyph) so it stays vertically centered with the label. */
 .rec-dot {
-  color: #c0392b;
-  font-size: 1.15em;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #c0392b;
+  flex-shrink: 0;
 }
 
 .action.recording {

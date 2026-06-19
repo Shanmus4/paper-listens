@@ -21,6 +21,7 @@ export function wireControls({
   onSensitivity,
   onRecordToggle,
   onTogglePlay,
+  onGrid,
 }) {
   const controlsToggle = document.getElementById("controlsToggle");
   const controlsPanel = document.getElementById("controlsPanel");
@@ -37,6 +38,8 @@ export function wireControls({
   const dropZone = document.getElementById("dropZone");
   const dropMain = dropZone.querySelector(".dropzone-main");
   const fileInput = document.getElementById("fileInput");
+
+  const gridToggle = document.getElementById("gridToggle");
 
   const clearBtn = document.getElementById("clearBtn");
   const saveBtn = document.getElementById("saveBtn");
@@ -111,6 +114,9 @@ export function wireControls({
   sensitivity.addEventListener("input", () => {
     onSensitivity?.(Number(sensitivity.value) / 100);
   });
+
+  // --- Grid overlay toggle ---
+  gridToggle.addEventListener("change", () => onGrid?.(gridToggle.checked));
 
   // --- New Sheet ---
   clearBtn.addEventListener("click", () => onClear?.());

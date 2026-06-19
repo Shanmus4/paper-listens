@@ -89,6 +89,11 @@
               <span class="panel-label">Sensitivity</span>
               <input id="sensitivity" type="range" min="0" max="100" value="50" />
             </label>
+
+            <label class="panel-row">
+              <span class="panel-label">Show note grid</span>
+              <input id="gridToggle" type="checkbox" />
+            </label>
           </div>
         </div>
       </header>
@@ -110,7 +115,7 @@
 
       <div class="actionbar">
         <button id="recordBtn" class="action" type="button">
-          <span class="glyph rec-dot" aria-hidden="true">●</span> <span id="recordLabel">Record</span>
+          <span class="rec-dot" aria-hidden="true"></span> <span id="recordLabel">Record</span>
         </button>
         <button id="clearBtn" class="action" type="button">
           <span class="glyph" aria-hidden="true">○</span> New Sheet

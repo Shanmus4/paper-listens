@@ -10,6 +10,7 @@ import { createOnsetDetector } from "./audio/onset.js";
 import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
 import { mapPitched, mapPercussive } from "./visual/synesthesia.js";
+import { drawGrid } from "./visual/grid.js";
 import { createWatercolor } from "./visual/watercolor.js";
 import { createPercussion } from "./visual/percussion.js";
 import { createRecorder } from "./ui/record.js";
@@ -38,6 +39,7 @@ let firstPaint = false;
 let currentSource = null; // "mic" | "file"
 let ui = null; // controls API, set after wiring
 let userPaused = false; // true only when the user hit pause on purpose
+let gridVisible = false; // overlay that reveals the note map
 
 // ---- Render loop ----
 function frame() {
@@ -48,6 +50,7 @@ function frame() {
   ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, 0, 0, width, height);
   watercolor.render(ctx, now);
   percussion.render(ctx, now);
+  if (gridVisible) drawGrid(ctx, width, height);
   levelMeter.render();
   requestAnimationFrame(frame);
 }
@@ -191,6 +194,9 @@ ui = wireControls({
   onSensitivity: (value) => {
     sensitivity = value;
     onsetDetector.setSensitivity(value);
+  },
+  onGrid: (on) => {
+    gridVisible = on;
   },
   onRecordToggle: async () => {
     // Recording is fully independent of playback: it only starts/stops the

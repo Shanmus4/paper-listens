@@ -30,9 +30,17 @@ export function createPaper(visibleCanvas) {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    state.width = w;
-    state.height = h;
-    state.dpr = dpr;
+    // Nothing meaningful changed (e.g. a mobile address bar nudging the height
+    // by a few px). Skip the rebuild so the painting doesn't flicker.
+    const newBW = Math.round(w * dpr);
+    const newBH = Math.round(h * dpr);
+    if (newBW === buffer.width && newBH === buffer.height) {
+      state.width = w;
+      state.height = h;
+      return;
+    }
+
+    const prevBW = buffer.width;
 
     // Preserve the existing painting across a resize by copying the old buffer.
     const old = document.createElement("canvas");
@@ -40,9 +48,13 @@ export function createPaper(visibleCanvas) {
     old.height = buffer.height;
     if (buffer.width > 0) old.getContext("2d").drawImage(buffer, 0, 0);
 
+    state.width = w;
+    state.height = h;
+    state.dpr = dpr;
+
     for (const c of [visibleCanvas, buffer]) {
-      c.width = Math.round(w * dpr);
-      c.height = Math.round(h * dpr);
+      c.width = newBW;
+      c.height = newBH;
     }
     visibleCanvas.style.width = w + "px";
     visibleCanvas.style.height = h + "px";
@@ -51,13 +63,15 @@ export function createPaper(visibleCanvas) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Repaint the preserved painting at its ORIGINAL pixel scale (top-left
-    // anchored). Rescaling to fit the new size would stretch the blots and
-    // ruin their shape; instead the canvas just grows or crops around the art.
-    if (old.width > 0) {
+    // Repaint the preserved painting scaled UNIFORMLY by the width ratio, so
+    // blots keep their round shape (no stretching) and never get clipped at
+    // the sides. Anchored top-left; the page just extends or trims at the
+    // bottom as the aspect ratio changes.
+    if (old.width > 0 && prevBW > 0) {
+      const k = newBW / prevBW;
       bctx.save();
       bctx.setTransform(1, 0, 0, 1, 0, 0);
-      bctx.drawImage(old, 0, 0);
+      bctx.drawImage(old, 0, 0, old.width, old.height, 0, 0, old.width * k, old.height * k);
       bctx.restore();
     }
   }

@@ -20,22 +20,37 @@ function brightness(centroidHz) {
   return clamp(Math.log2(hz / lo) / Math.log2(hi / lo), 0, 1);
 }
 
-// Note (pitch class + octave) -> fixed cell center on the canvas grid.
-export function gridCell(pc, octave, width, height) {
+// The invisible grid's geometry, shared by note placement and the (optional)
+// visible overlay so they can never drift apart.
+export function gridGeometry(width, height) {
   const mx = width * 0.07; // side margins
   const myTop = height * 0.16; // headroom (headline area; it fades on first paint)
   const myBot = height * 0.1;
   const cols = 12;
   const rows = OCT_MAX - OCT_MIN + 1;
-  const cw = (width - 2 * mx) / cols;
-  const ch = (height - myTop - myBot) / rows;
+  return {
+    mx,
+    myTop,
+    myBot,
+    cols,
+    rows,
+    cw: (width - 2 * mx) / cols,
+    ch: (height - myTop - myBot) / rows,
+    octMin: OCT_MIN,
+    octMax: OCT_MAX,
+  };
+}
+
+// Note (pitch class + octave) -> fixed cell center on the canvas grid.
+export function gridCell(pc, octave, width, height) {
+  const g = gridGeometry(width, height);
   const oct = clamp(octave, OCT_MIN, OCT_MAX);
   const row = OCT_MAX - oct; // high octave -> top
   return {
-    x: mx + (pc + 0.5) * cw,
-    y: myTop + (row + 0.5) * ch,
-    cellW: cw,
-    cellH: ch,
+    x: g.mx + (pc + 0.5) * g.cw,
+    y: g.myTop + (row + 0.5) * g.ch,
+    cellW: g.cw,
+    cellH: g.ch,
   };
 }
 
