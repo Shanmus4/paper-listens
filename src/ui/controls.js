@@ -1,5 +1,5 @@
 // controls.js — wires the DOM chrome: Controls panel, source switching
-// (microphone / file), file picker, sensitivity, New Sheet, Save.
+// (microphone / upload drop box), sensitivity, New Sheet, and the Save modal.
 // Audio/painting logic is injected via callbacks.
 
 export function wireControls({ onMic, onFile, onClear, onSave, onSensitivity }) {
@@ -9,17 +9,23 @@ export function wireControls({ onMic, onFile, onClear, onSave, onSensitivity }) 
 
   const srcMic = document.getElementById("srcMic");
   const srcFile = document.getElementById("srcFile");
+  const dropZone = document.getElementById("dropZone");
+  const dropMain = dropZone.querySelector(".dropzone-main");
   const fileInput = document.getElementById("fileInput");
-  const fileRow = document.getElementById("fileRow");
-  const fileName = document.getElementById("fileName");
 
   const clearBtn = document.getElementById("clearBtn");
   const saveBtn = document.getElementById("saveBtn");
 
+  const saveModal = document.getElementById("saveModal");
+  const saveBackdrop = document.getElementById("saveBackdrop");
+  const saveName = document.getElementById("saveName");
+  const saveConfirm = document.getElementById("saveConfirm");
+  const saveCancel = document.getElementById("saveCancel");
+
   function setActiveSource(which) {
     srcMic.classList.toggle("seg--on", which === "mic");
     srcFile.classList.toggle("seg--on", which === "file");
-    fileRow.hidden = which !== "file";
+    dropZone.hidden = which !== "file";
   }
 
   // --- Controls panel toggle ---
@@ -41,23 +47,66 @@ export function wireControls({ onMic, onFile, onClear, onSave, onSensitivity }) 
     setActiveSource("mic");
     onMic?.();
   });
-  srcFile.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", () => {
-    const file = fileInput.files?.[0];
+  srcFile.addEventListener("click", () => setActiveSource("file"));
+
+  // --- Drop box ---
+  function loadFile(file) {
     if (!file) return;
     setActiveSource("file");
-    fileName.textContent = file.name;
+    dropMain.textContent = `♪ ${file.name}`;
     onFile?.(file);
+  }
+  dropZone.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => loadFile(fileInput.files?.[0]));
+
+  ["dragenter", "dragover"].forEach((ev) =>
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropZone.classList.add("drag");
+    })
+  );
+  ["dragleave", "dragend"].forEach((ev) =>
+    dropZone.addEventListener(ev, () => dropZone.classList.remove("drag"))
+  );
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("drag");
+    loadFile(e.dataTransfer?.files?.[0]);
   });
+  // Stop the browser from navigating away if a file is dropped off-target.
+  ["dragover", "drop"].forEach((ev) =>
+    window.addEventListener(ev, (e) => e.preventDefault())
+  );
 
   // --- Sensitivity ---
   sensitivity.addEventListener("input", () => {
     onSensitivity?.(Number(sensitivity.value) / 100);
   });
 
-  // --- Actions ---
+  // --- New Sheet ---
   clearBtn.addEventListener("click", () => onClear?.());
-  saveBtn.addEventListener("click", () => onSave?.());
+
+  // --- Save modal ---
+  function openSave() {
+    saveName.value = "";
+    saveModal.hidden = false;
+    saveName.focus();
+  }
+  function closeSave() {
+    saveModal.hidden = true;
+  }
+  function confirmSave() {
+    closeSave();
+    onSave?.(saveName.value.trim());
+  }
+  saveBtn.addEventListener("click", openSave);
+  saveCancel.addEventListener("click", closeSave);
+  saveBackdrop.addEventListener("click", closeSave);
+  saveConfirm.addEventListener("click", confirmSave);
+  saveName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") confirmSave();
+    if (e.key === "Escape") closeSave();
+  });
 
   return { setActiveSource };
 }

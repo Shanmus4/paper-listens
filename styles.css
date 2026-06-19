@@ -137,8 +137,14 @@ body {
 }
 
 .caret {
-  font-size: 0.7em;
-  transition: transform 0.18s ease;
+  display: inline-flex;
+  align-items: center;
+  color: var(--sepia);
+  transition: transform 0.2s ease;
+}
+
+.caret svg {
+  display: block;
 }
 
 .pill[aria-expanded="true"] .caret {
@@ -214,17 +220,43 @@ body {
   box-shadow: 0 1px 3px rgba(58, 52, 44, 0.14);
 }
 
-.file-name {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink);
-  font-size: 0.82rem;
+/* Drop box for file upload, inside the controls panel. */
+.dropzone {
+  border: 1.5px dashed var(--card-border);
+  border-radius: 10px;
+  background: rgba(58, 52, 44, 0.03);
+  padding: 16px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
 }
 
-.file-row[hidden] {
+.dropzone:hover,
+.dropzone.drag {
+  border-color: var(--sepia);
+  background: rgba(139, 115, 85, 0.08);
+}
+
+.dropzone[hidden] {
   display: none;
+}
+
+.dropzone-main {
+  font-size: 0.86rem;
+  color: var(--ink);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.dropzone-link {
+  color: var(--sepia);
+  text-decoration: underline;
+}
+
+.dropzone-hint {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
 }
 
 .mic-hint {
@@ -306,6 +338,96 @@ body {
   font-size: 1.05em;
   line-height: 1;
   color: var(--sepia);
+}
+
+/* ---------- Save modal ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gap);
+}
+
+.modal[hidden] {
+  display: none;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(58, 52, 44, 0.32);
+  backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  position: relative;
+  width: min(380px, 100%);
+  background: var(--paper);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px rgba(58, 52, 44, 0.3);
+  padding: 24px;
+}
+
+.modal-title {
+  font-family: "Caveat", cursive;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1;
+}
+
+.modal-sub {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.modal-input {
+  width: 100%;
+  margin-top: 16px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: rgba(58, 52, 44, 0.04);
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  padding: 11px 13px;
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: var(--sepia);
+}
+
+.modal-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-save {
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--paper);
+  background: var(--ink);
+  border: none;
+  border-radius: 9px;
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: background 0.14s ease, transform 0.12s ease;
+}
+
+.modal-save:hover {
+  background: #2c281f;
+  transform: translateY(-1px);
 }
 
 /* ---------- Mobile ---------- */

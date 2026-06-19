@@ -170,7 +170,7 @@ wireControls({
     firstPaint = false;
     headline.classList.remove("faded");
   },
-  onSave: () => paper.save(),
+  onSave: (name) => paper.save(name),
   onSensitivity: (value) => {
     sensitivity = value;
     onsetDetector.setSensitivity(value);

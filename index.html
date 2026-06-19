@@ -6,9 +6,38 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="description" content="Play your music, the paper is listening. Turn sound into ink." />
+    <title>Paper Listens — turn your music into ink</title>
+    <meta
+      name="description"
+      content="Play your music and the paper listens. Paper Listens turns guitar, voice, or any song into watercolor ink on paper, in your browser. Every note has its own color and place."
+    />
     <meta name="theme-color" content="#f4ede1" />
-    <title>Paper Listens</title>
+    <meta name="author" content="Shanmugha Sundaram S S" />
+    <link rel="canonical" href="https://paper-listens.vercel.app/" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg" />
+    <link rel="apple-touch-icon" href="./assets/favicon.svg" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Paper Listens" />
+    <meta property="og:title" content="Paper Listens — turn your music into ink" />
+    <meta
+      property="og:description"
+      content="Play your music and the paper listens. Guitar, voice, or any song becomes watercolor ink on paper."
+    />
+    <meta property="og:url" content="https://paper-listens.vercel.app/" />
+    <meta property="og:image" content="https://paper-listens.vercel.app/assets/cover.svg" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Paper Listens — turn your music into ink" />
+    <meta
+      name="twitter:description"
+      content="Play your music and the paper listens. Guitar, voice, or any song becomes watercolor ink on paper."
+    />
+    <meta name="twitter:image" content="https://paper-listens.vercel.app/assets/cover.svg" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,7 +48,6 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <!-- The painting surface fills the whole viewport, behind everything. -->
     <canvas id="paper" aria-label="Your painting"></canvas>
     <div class="paper-grain" aria-hidden="true"></div>
 
@@ -34,31 +62,37 @@
         <div class="controls-wrap">
           <button id="controlsToggle" class="pill" aria-expanded="false" aria-controls="controlsPanel">
             Controls
-            <span class="caret" aria-hidden="true">▾</span>
+            <span class="caret" aria-hidden="true">
+              <svg viewBox="0 0 12 8" width="12" height="8">
+                <path d="M1 1.6 L6 6.4 L11 1.6" fill="none" stroke="currentColor"
+                  stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
           </button>
+
           <div id="controlsPanel" class="controls-panel" hidden>
             <div class="panel-row">
               <span class="panel-label">Source</span>
               <div class="segmented" role="group" aria-label="Audio source">
                 <button id="srcMic" class="seg seg--on" type="button">Microphone</button>
-                <button id="srcFile" class="seg" type="button">Upload file</button>
+                <button id="srcFile" class="seg" type="button">Upload</button>
               </div>
             </div>
-            <div id="fileRow" class="panel-row file-row" hidden>
-              <span class="panel-label">File</span>
-              <span id="fileName" class="file-name">none</span>
+
+            <div id="dropZone" class="dropzone" hidden>
+              <input id="fileInput" type="file" accept="audio/*" hidden />
+              <p class="dropzone-main">Drop a file here, or <span class="dropzone-link">browse</span></p>
+              <p class="dropzone-hint">MP3, WAV, OGG, M4A, FLAC</p>
             </div>
+
             <label class="panel-row">
               <span class="panel-label">Sensitivity</span>
               <input id="sensitivity" type="range" min="0" max="100" value="50" />
             </label>
           </div>
-          <!-- Hidden native input, triggered by the Upload file button. -->
-          <input id="fileInput" type="file" accept="audio/*" hidden />
         </div>
       </header>
 
-      <!-- A small inline hint, shown only if the mic is unavailable/denied. -->
       <p id="micHint" class="mic-hint" hidden>
         Microphone blocked. Allow it in your browser, or upload a file from Controls.
       </p>
@@ -74,6 +108,20 @@
         <button id="saveBtn" class="action" type="button">
           <span class="glyph" aria-hidden="true">↓</span> Save
         </button>
+      </div>
+    </div>
+
+    <!-- Save modal: name the piece before exporting. -->
+    <div id="saveModal" class="modal" hidden>
+      <div class="modal-backdrop" id="saveBackdrop"></div>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="saveTitle">
+        <h2 id="saveTitle" class="modal-title">Name your piece</h2>
+        <p class="modal-sub">It will be signed in the corner of your painting. Leave blank to skip.</p>
+        <input id="saveName" class="modal-input" type="text" placeholder="Untitled" maxlength="40" autocomplete="off" />
+        <div class="modal-actions">
+          <button id="saveCancel" class="seg" type="button">Cancel</button>
+          <button id="saveConfirm" class="modal-save" type="button">Save image</button>
+        </div>
       </div>
     </div>
 

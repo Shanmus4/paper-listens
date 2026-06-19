@@ -67,8 +67,43 @@ export function createPaper(visibleCanvas) {
     bctx.restore();
   }
 
-  // Save the dried painting (the buffer) as a PNG, flattened onto paper color.
-  function save(filename = "paper-listens.png") {
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+
+  // Sign the piece top-left, on a translucent paper pill so the name stays
+  // readable whatever colors (or none) sit behind it.
+  function drawSignature(octx, name, w) {
+    const size = Math.round(w * 0.03);
+    octx.font = `700 ${size}px "Caveat", cursive`;
+    octx.textBaseline = "top";
+    const tw = octx.measureText(name).width;
+    const padX = size * 0.6;
+    const padY = size * 0.34;
+    const margin = Math.round(w * 0.025);
+    const bw = tw + padX * 2;
+    const bh = size + padY * 2;
+
+    roundRect(octx, margin, margin, bw, bh, size * 0.45);
+    octx.fillStyle = "rgba(244, 237, 225, 0.86)";
+    octx.fill();
+    octx.lineWidth = Math.max(1, size * 0.03);
+    octx.strokeStyle = "rgba(58, 52, 44, 0.18)";
+    octx.stroke();
+
+    octx.fillStyle = "#3a342c";
+    octx.fillText(name, margin + padX, margin + padY);
+  }
+
+  // Save the dried painting (the buffer) as a PNG, flattened onto paper color,
+  // optionally signed with a name in the corner.
+  async function save(name = "") {
     const out = document.createElement("canvas");
     out.width = buffer.width;
     out.height = buffer.height;
@@ -78,12 +113,27 @@ export function createPaper(visibleCanvas) {
     octx.fillRect(0, 0, out.width, out.height);
     octx.drawImage(buffer, 0, 0);
 
+    const clean = (name || "").trim();
+    if (clean) {
+      // Make sure the handwritten font is ready before drawing to canvas.
+      try {
+        await document.fonts.load(`700 ${Math.round(out.width * 0.03)}px "Caveat"`);
+      } catch (_) {
+        /* fall back to whatever is available */
+      }
+      drawSignature(octx, clean, out.width);
+    }
+
+    const file = clean
+      ? clean.replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-") || "paper-listens"
+      : "paper-listens";
+
     out.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename;
+      a.download = `${file}.png`;
       a.click();
       URL.revokeObjectURL(url);
     }, "image/png");
