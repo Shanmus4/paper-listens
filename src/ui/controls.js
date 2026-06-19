@@ -71,6 +71,7 @@ export function wireControls({
   const saveCancel = document.getElementById("saveCancel");
   const saveTitle = document.getElementById("saveTitle");
   const saveSub = document.getElementById("saveSub");
+  const nameCaret = document.getElementById("nameCaret");
 
   playIcon.innerHTML = ICON_PAUSE;
 
@@ -158,6 +159,43 @@ export function wireControls({
   // --- New Sheet ---
   clearBtn.addEventListener("click", () => onClear?.());
 
+  // --- Custom caret for the name field (slow, soft blink) ---
+  // We hide the native caret (CSS) and place a thin bar at the end of the typed
+  // text, measured with a canvas using the input's own font.
+  let caretCtx = null;
+  function textWidth(text) {
+    if (!caretCtx) caretCtx = document.createElement("canvas").getContext("2d");
+    const cs = getComputedStyle(saveName);
+    caretCtx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    return caretCtx.measureText(text).width;
+  }
+  function positionCaret() {
+    const cs = getComputedStyle(saveName);
+    const padL = parseFloat(cs.paddingLeft) || 0;
+    const maxX = saveName.clientWidth - padL - 2;
+    const x = Math.min(textWidth(saveName.value || ""), Math.max(0, maxX));
+    nameCaret.style.left = saveName.offsetLeft + padL + x + "px";
+    nameCaret.style.top =
+      saveName.offsetTop + (saveName.offsetHeight - nameCaret.offsetHeight) / 2 + "px";
+  }
+  function showCaret(on) {
+    nameCaret.style.display = on ? "block" : "none";
+    if (on) positionCaret();
+  }
+  function bumpCaret() {
+    // Keep the caret solid right after a keystroke, then resume blinking.
+    nameCaret.style.animation = "none";
+    void nameCaret.offsetWidth; // force reflow so the animation restarts
+    nameCaret.style.animation = "";
+    positionCaret();
+  }
+  saveName.addEventListener("input", bumpCaret);
+  saveName.addEventListener("focus", () => showCaret(true));
+  saveName.addEventListener("blur", () => showCaret(false));
+  ["click", "keyup", "select"].forEach((ev) =>
+    saveName.addEventListener(ev, positionCaret)
+  );
+
   // --- Name modal (shared by Save image and Save recording) ---
   // Resolves with the trimmed name, or null if the user cancels.
   let resolveModal = null;
@@ -174,6 +212,7 @@ export function wireControls({
   }
   function closeModal(result) {
     if (saveModal.hidden) return;
+    showCaret(false);
     saveModal.hidden = true;
     const done = resolveModal;
     resolveModal = null;
