@@ -368,7 +368,8 @@ body {
 .transport {
   position: absolute;
   left: 50%;
-  bottom: max(var(--gap), env(safe-area-inset-bottom));
+  /* Sit above the action bar so the two never overlap. */
+  bottom: calc(max(var(--gap), env(safe-area-inset-bottom)) + 60px);
   transform: translateX(-50%);
   pointer-events: auto;
   display: flex;

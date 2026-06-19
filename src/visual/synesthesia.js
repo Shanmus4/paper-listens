@@ -23,9 +23,11 @@ function brightness(centroidHz) {
 // The invisible grid's geometry, shared by note placement and the (optional)
 // visible overlay so they can never drift apart.
 export function gridGeometry(width, height) {
-  const mx = width * 0.07; // side margins
-  const myTop = height * 0.16; // headroom (headline area; it fades on first paint)
-  const myBot = height * 0.1;
+  // Near-zero margins so the note map fills the whole screen; the overlay
+  // draws its labels just inside these edges.
+  const mx = width * 0.025;
+  const myTop = height * 0.03;
+  const myBot = height * 0.03;
   const cols = 12;
   const rows = OCT_MAX - OCT_MIN + 1;
   return {
