@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>Paper Listens — turn your music into ink</title>
+    <title>Paper Listens, turn your music into ink</title>
     <meta
       name="description"
       content="Play your music and the paper listens. Paper Listens turns guitar, voice, or any song into watercolor ink on paper, in your browser. Every note has its own color and place."
@@ -22,7 +22,7 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Paper Listens" />
-    <meta property="og:title" content="Paper Listens — turn your music into ink" />
+    <meta property="og:title" content="Paper Listens" />
     <meta
       property="og:description"
       content="Play your music and the paper listens. Guitar, voice, or any song becomes watercolor ink on paper."
@@ -32,7 +32,7 @@
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Paper Listens — turn your music into ink" />
+    <meta name="twitter:title" content="Paper Listens" />
     <meta
       name="twitter:description"
       content="Play your music and the paper listens. Guitar, voice, or any song becomes watercolor ink on paper."
@@ -101,7 +101,17 @@
         <canvas id="level" width="180" height="48"></canvas>
       </div>
 
+      <!-- Playback transport for uploaded audio (bottom-center). -->
+      <div id="transport" class="transport" hidden>
+        <button id="playPause" class="transport-btn" type="button" aria-label="Play or pause">
+          <span class="transport-icon">❚❚</span>
+        </button>
+      </div>
+
       <div class="actionbar">
+        <button id="recordBtn" class="action" type="button">
+          <span class="glyph rec-dot" aria-hidden="true">●</span> <span id="recordLabel">Record</span>
+        </button>
         <button id="clearBtn" class="action" type="button">
           <span class="glyph" aria-hidden="true">○</span> New Sheet
         </button>

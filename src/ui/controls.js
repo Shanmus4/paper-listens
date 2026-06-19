@@ -2,10 +2,24 @@
 // (microphone / upload drop box), sensitivity, New Sheet, and the Save modal.
 // Audio/painting logic is injected via callbacks.
 
-export function wireControls({ onMic, onFile, onClear, onSave, onSensitivity }) {
+export function wireControls({
+  onMic,
+  onFile,
+  onClear,
+  onSave,
+  onSensitivity,
+  onRecordToggle,
+  onTogglePlay,
+}) {
   const controlsToggle = document.getElementById("controlsToggle");
   const controlsPanel = document.getElementById("controlsPanel");
   const sensitivity = document.getElementById("sensitivity");
+
+  const recordBtn = document.getElementById("recordBtn");
+  const recordLabel = document.getElementById("recordLabel");
+  const transport = document.getElementById("transport");
+  const playPause = document.getElementById("playPause");
+  const playIcon = playPause.querySelector(".transport-icon");
 
   const srcMic = document.getElementById("srcMic");
   const srcFile = document.getElementById("srcFile");
@@ -108,5 +122,24 @@ export function wireControls({ onMic, onFile, onClear, onSave, onSensitivity }) 
     if (e.key === "Escape") closeSave();
   });
 
-  return { setActiveSource };
+  // --- Record + transport ---
+  recordBtn.addEventListener("click", () => onRecordToggle?.());
+  playPause.addEventListener("click", () => onTogglePlay?.());
+
+  return {
+    setActiveSource,
+    setRecording(on) {
+      recordBtn.classList.toggle("recording", on);
+      recordLabel.textContent = on ? "Stop" : "Record";
+    },
+    showTransport(on) {
+      transport.hidden = !on;
+    },
+    setPlaying(on) {
+      playIcon.textContent = on ? "❚❚" : "▶";
+    },
+    hideRecord() {
+      recordBtn.hidden = true;
+    },
+  };
 }

@@ -80,17 +80,17 @@ export function createPaper(visibleCanvas) {
   // Sign the piece top-left, on a translucent paper pill so the name stays
   // readable whatever colors (or none) sit behind it.
   function drawSignature(octx, name, w) {
-    const size = Math.round(w * 0.03);
+    const size = Math.round(w * 0.02);
     octx.font = `700 ${size}px "Caveat", cursive`;
     octx.textBaseline = "top";
     const tw = octx.measureText(name).width;
-    const padX = size * 0.6;
-    const padY = size * 0.34;
-    const margin = Math.round(w * 0.025);
+    const padX = size * 0.5;
+    const padY = size * 0.28;
+    const margin = Math.round(w * 0.015);
     const bw = tw + padX * 2;
     const bh = size + padY * 2;
 
-    roundRect(octx, margin, margin, bw, bh, size * 0.45);
+    roundRect(octx, margin, margin, bw, bh, size * 0.4);
     octx.fillStyle = "rgba(244, 237, 225, 0.86)";
     octx.fill();
     octx.lineWidth = Math.max(1, size * 0.03);
@@ -117,7 +117,7 @@ export function createPaper(visibleCanvas) {
     if (clean) {
       // Make sure the handwritten font is ready before drawing to canvas.
       try {
-        await document.fonts.load(`700 ${Math.round(out.width * 0.03)}px "Caveat"`);
+        await document.fonts.load(`700 ${Math.round(out.width * 0.02)}px "Caveat"`);
       } catch (_) {
         /* fall back to whatever is available */
       }

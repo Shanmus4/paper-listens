@@ -12,6 +12,7 @@ import { createModeTracker } from "./audio/mode.js";
 import { mapPitched, mapPercussive } from "./visual/synesthesia.js";
 import { createWatercolor } from "./visual/watercolor.js";
 import { createPercussion } from "./visual/percussion.js";
+import { createRecorder } from "./ui/record.js";
 
 const paperEl = document.getElementById("paper");
 const paper = createPaper(paperEl);
@@ -21,6 +22,7 @@ const micHint = document.getElementById("micHint");
 
 const watercolor = createWatercolor(paper);
 const percussion = createPercussion(paper);
+const recorder = createRecorder(paperEl);
 
 const PAPER_COLOR =
   getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#f4ede1";
@@ -33,6 +35,8 @@ let sensitivity = 0.5;
 let source = null;
 let analyzer = null;
 let firstPaint = false;
+let currentSource = null; // "mic" | "file"
+let ui = null; // controls API, set after wiring
 
 // ---- Render loop ----
 function frame() {
@@ -120,6 +124,14 @@ function fadeHeadline() {
 }
 
 // ---- Source management ----
+function clearCanvas() {
+  paper.clear();
+  watercolor.clear();
+  percussion.clear();
+  firstPaint = false;
+  headline.classList.remove("faded");
+}
+
 function teardownSource() {
   analyzer?.stop();
   source?.stop();
@@ -131,6 +143,7 @@ function teardownSource() {
 }
 
 async function startMic() {
+  const changed = currentSource !== "mic";
   teardownSource();
   try {
     source = await createMicSource();
@@ -138,6 +151,9 @@ async function startMic() {
     analyzer.start();
     source.start();
     micHint.hidden = true;
+    currentSource = "mic";
+    ui?.showTransport(false);
+    if (changed) clearCanvas(); // switching mode starts a fresh sheet
   } catch (err) {
     console.error("[paper-listens] mic failed:", err);
     micHint.hidden = false;
@@ -147,11 +163,15 @@ async function startMic() {
 async function startFile(file) {
   teardownSource();
   try {
-    source = await createFileSource(file, { onEnded: () => {} });
+    source = await createFileSource(file, { onEnded: () => ui?.setPlaying(false) });
     analyzer = createAnalyzer(source, onAudioFrame);
     analyzer.start();
     source.start();
     micHint.hidden = true;
+    currentSource = "file";
+    clearCanvas(); // a new file always starts a fresh sheet
+    ui?.showTransport(true);
+    ui?.setPlaying(true);
   } catch (err) {
     console.error("[paper-listens] file failed:", err);
     micHint.hidden = false;
@@ -160,22 +180,36 @@ async function startFile(file) {
 }
 
 // ---- Wire UI ----
-wireControls({
+ui = wireControls({
   onMic: startMic,
   onFile: startFile,
-  onClear: () => {
-    paper.clear();
-    watercolor.clear();
-    percussion.clear();
-    firstPaint = false;
-    headline.classList.remove("faded");
-  },
+  onClear: clearCanvas,
   onSave: (name) => paper.save(name),
   onSensitivity: (value) => {
     sensitivity = value;
     onsetDetector.setSensitivity(value);
   },
+  onRecordToggle: async () => {
+    if (recorder.isActive()) {
+      ui.setRecording(false);
+      await recorder.stop("paper-listens");
+    } else if (recorder.start()) {
+      ui.setRecording(true);
+    }
+  },
+  onTogglePlay: () => {
+    const ctx = source?.audioContext;
+    if (!ctx) return;
+    if (ctx.state === "running") {
+      ctx.suspend();
+      ui.setPlaying(false);
+    } else {
+      ctx.resume();
+      ui.setPlaying(true);
+    }
+  },
 });
+if (!recorder.supported()) ui.hideRecord();
 
 // iOS/Safari: resume a suspended context on the first user gesture.
 function resumeOnGesture() {

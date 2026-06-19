@@ -340,6 +340,61 @@ body {
   color: var(--sepia);
 }
 
+/* Record button: dot turns red and pulses while recording. */
+.rec-dot {
+  color: #c0392b;
+  font-size: 0.8em;
+}
+
+.action.recording {
+  border-color: rgba(192, 57, 43, 0.5);
+}
+
+.action.recording .rec-dot {
+  animation: recpulse 1.1s ease-in-out infinite;
+}
+
+@keyframes recpulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* Playback transport (bottom-center), shown for uploaded audio. */
+.transport {
+  position: absolute;
+  left: 50%;
+  bottom: max(var(--gap), env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.transport[hidden] {
+  display: none;
+}
+
+.transport-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.transport-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(248, 243, 234, 0.95);
+}
+
 /* ---------- Save modal ---------- */
 
 .modal {
@@ -388,21 +443,31 @@ body {
   line-height: 1.4;
 }
 
+/* Handwritten input: typing previews how the signature will look. */
 .modal-input {
   width: 100%;
-  margin-top: 16px;
-  font: inherit;
-  font-size: 1rem;
+  margin-top: 18px;
+  font-family: "Caveat", cursive;
+  font-weight: 700;
+  font-size: 1.8rem;
+  line-height: 1.2;
   color: var(--ink);
-  background: rgba(58, 52, 44, 0.04);
-  border: 1px solid var(--card-border);
-  border-radius: 9px;
-  padding: 11px 13px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--card-border);
+  border-radius: 0;
+  padding: 4px 2px;
+}
+
+.modal-input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.45;
+  font-weight: 500;
 }
 
 .modal-input:focus {
   outline: none;
-  border-color: var(--sepia);
+  border-bottom-color: var(--sepia);
 }
 
 .modal-actions {
