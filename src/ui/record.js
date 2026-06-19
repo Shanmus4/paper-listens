@@ -40,28 +40,36 @@ export function createRecorder(canvas) {
     return true;
   }
 
-  // Stops and triggers a download. Returns the file extension used.
-  function stop(name = "paper-listens") {
+  // Stops recording and resolves with the finished video. We hand back the
+  // blob (instead of downloading immediately) so the caller can ask the user
+  // for a name first, then call download().
+  function stop() {
     return new Promise((resolve) => {
       if (!recorder) return resolve(null);
       recorder.onstop = () => {
         const type = mime || "video/webm";
         const ext = type.includes("mp4") ? "mp4" : "webm";
         const blob = new Blob(chunks, { type });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${name}.${ext}`;
-        a.click();
-        URL.revokeObjectURL(url);
         recorder = null;
-        resolve(ext);
+        resolve({ blob, ext });
       };
       recorder.stop();
     });
   }
 
+  // Trigger a file download for a finished recording.
+  function download(blob, ext, name = "paper-listens") {
+    if (!blob) return;
+    const safe = (name || "").replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-") || "paper-listens";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safe}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const isActive = () => !!recorder && recorder.state === "recording";
 
-  return { supported, start, stop, isActive };
+  return { supported, start, stop, download, isActive };
 }

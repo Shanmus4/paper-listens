@@ -1,128 +1,178 @@
-// watercolor.js — renders pitched notes as ink on paper.
+// watercolor.js — renders pitched notes as watercolor ink on paper.
 //
-// Each note is an ink blot: a dark pooled core, an irregular surrounding mass,
-// capillary tendrils that wick outward as it "dries", and a few feathered
-// specks at the edge. Drawn with "multiply" so overlaps deepen like real ink.
-// Wet blots draw on the visible canvas, then bake into the paper buffer once
-// dry. Per-blot shape is seeded so it never shimmers between frames.
+// Real watercolor has soft, irregular, feathered edges with darker pooling in
+// the middle and lighter pigment bleeding outward. We get that look by taking
+// one organic polygon and stacking many slightly-redrawn, low-opacity copies
+// of it (the classic layered-polygon watercolor technique): where many layers
+// overlap the color deepens; at the ragged edges only a few reach, so it fades
+// like pigment soaking into the page.
+//
+// Each blot is rendered ONCE to its own small offscreen canvas when it lands,
+// then the render loop just stamps that canvas to screen (growing + fading in
+// as it "blooms"), and bakes it into the paper buffer once dry. This keeps the
+// per-frame cost to a single drawImage no matter how detailed the blot is.
 
 import { seededRng } from "./rng.js";
 
-const DRY_MS = 520; // wet -> dry (ink keeps creeping a touch longer)
+const TAU = Math.PI * 2;
+const DRY_MS = 900; // wet -> dry; watercolor blooms slowly
 const ease = (t) => 1 - Math.pow(1 - t, 3); // easeOutCubic
+const clampPct = (v) => Math.min(100, Math.max(0, v));
 
-// Precompute the core lobes, tendrils, and feather specks for one blot.
-function buildInk(spec) {
+// Roughen a closed polygon: insert a displaced midpoint on every edge, a few
+// times over. Displacement shrinks each pass, so big lobes get fine ragged
+// detail layered on top — the organic outline a wet edge makes on paper.
+function deform(points, iterations, variance, rand) {
+  let pts = points;
+  let v = variance;
+  for (let it = 0; it < iterations; it++) {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      out.push(a);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len; // edge normal
+      const ny = dx / len;
+      const disp = (rand() - 0.5) * len * v;
+      out.push({ x: (a.x + b.x) / 2 + nx * disp, y: (a.y + b.y) / 2 + ny * disp });
+    }
+    pts = out;
+    v *= 0.62;
+  }
+  return pts;
+}
+
+// A rough starting ring of `n` points at a jittered radius.
+function ring(n, radius, jitter, rand) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU + (rand() - 0.5) * 0.3;
+    const r = radius * (1 - jitter + rand() * jitter * 2);
+    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+  }
+  return pts;
+}
+
+// Precompute everything needed to paint one blot: the layered body polygons
+// (each with its own slight color shift for granulation), a darker pooled core,
+// and a few pigment specks near the edge.
+function buildShape(spec) {
   const rand = seededRng(spec.seed);
+  const R = spec.radius;
 
-  const core = [];
-  const lobes = 5 + Math.floor(rand() * 4);
-  for (let i = 0; i < lobes; i++) {
-    const a = rand() * Math.PI * 2;
-    const d = rand() * spec.radius * 0.5;
-    core.push({
-      dx: Math.cos(a) * d,
-      dy: Math.sin(a) * d,
-      r: spec.radius * (0.4 + rand() * 0.6),
-      a: 0.6 + rand() * 0.4,
+  // The "master" outline every layer is a variation of.
+  const base = deform(ring(6 + Math.floor(rand() * 4), R, 0.35, rand), 3, 0.6, rand);
+
+  const layers = [];
+  const N = 22 + Math.floor(rand() * 8);
+  for (let i = 0; i < N; i++) {
+    layers.push({
+      poly: deform(base, 2, 0.4, rand),
+      // Small per-layer hue/lightness drift reads as pigment granulation.
+      h: spec.h + (rand() - 0.5) * 8,
+      s: clampPct(spec.s + (rand() - 0.5) * 12),
+      l: clampPct(spec.l + (rand() - 0.5) * 14),
     });
   }
 
-  // Tendrils: chains of shrinking dots radiating out, like ink in paper fibers.
-  const tendrils = [];
-  const nT = 4 + Math.floor(rand() * 4);
-  for (let i = 0; i < nT; i++) {
-    const baseAngle = rand() * Math.PI * 2;
-    const len = spec.radius * (1.3 + rand() * 1.7);
-    const steps = 4 + Math.floor(rand() * 4);
-    const wob = (rand() - 0.5) * 0.6;
-    const chain = [];
-    for (let s = 1; s <= steps; s++) {
-      const f = s / steps;
-      const ang = baseAngle + wob * f;
-      const dist = len * f;
-      chain.push({
-        dx: Math.cos(ang) * dist,
-        dy: Math.sin(ang) * dist,
-        r: spec.radius * (0.16 * (1 - f) + 0.04),
-        a: (1 - f) * 0.6 + 0.1,
-      });
-    }
-    tendrils.push(chain);
-  }
+  // Darker pooled centre, offset a touch so it never looks like a target.
+  const cx = (rand() - 0.5) * R * 0.3;
+  const cy = (rand() - 0.5) * R * 0.3;
+  const core = deform(ring(6, R * 0.45, 0.4, rand), 3, 0.5, rand).map((p) => ({
+    x: p.x + cx,
+    y: p.y + cy,
+  }));
 
-  const feather = [];
-  const nF = 6 + Math.floor(rand() * 6);
-  for (let i = 0; i < nF; i++) {
-    const a = rand() * Math.PI * 2;
-    const d = spec.radius * (0.8 + rand() * 0.9);
-    feather.push({
-      dx: Math.cos(a) * d,
-      dy: Math.sin(a) * d,
-      r: spec.radius * (0.04 + rand() * 0.1),
-      a: 0.2 + rand() * 0.3,
+  const specks = [];
+  const ns = 4 + Math.floor(rand() * 5);
+  for (let i = 0; i < ns; i++) {
+    const a = rand() * TAU;
+    const d = R * (0.4 + rand() * 0.8);
+    specks.push({
+      x: Math.cos(a) * d,
+      y: Math.sin(a) * d,
+      r: R * (0.03 + rand() * 0.07),
+      a: 0.1 + rand() * 0.18,
     });
   }
 
-  return { core, tendrils, feather };
+  return { layers, core, specks };
 }
 
-function radial(ctx, x, y, r, h, s, l, a, mid) {
-  if (r <= 0 || a <= 0) return;
-  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, `hsla(${h}, ${s}%, ${l}%, ${a})`);
-  g.addColorStop(mid, `hsla(${h}, ${s}%, ${l}%, ${a * 0.45})`);
-  g.addColorStop(1, `hsla(${h}, ${s}%, ${l}%, 0)`);
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fill();
+function fillPoly(c, poly) {
+  c.beginPath();
+  c.moveTo(poly[0].x, poly[0].y);
+  for (let i = 1; i < poly.length; i++) c.lineTo(poly[i].x, poly[i].y);
+  c.closePath();
+  c.fill();
 }
 
-function drawInk(ctx, b, t) {
-  const fade = ease(Math.min(1, t * 1.4));
-  const spread = ease(t); // tendrils + feather creep outward as it dries
+// Paint the blot once onto a transparent offscreen canvas. Layers multiply
+// against each other so the overlap darkens organically.
+function renderToCanvas(spec, shape) {
+  const R = spec.radius;
+  const half = Math.ceil(R * 2.4); // room for the ragged outer edges
+  const size = half * 2;
+  const cv = document.createElement("canvas");
+  cv.width = size;
+  cv.height = size;
+  const c = cv.getContext("2d");
+  c.translate(half, half);
+  c.globalCompositeOperation = "multiply";
 
-  ctx.save();
-  ctx.globalCompositeOperation = "multiply";
-
-  // Dark pooled center (ink soaking in).
-  radial(ctx, b.x, b.y, b.radius * 0.55, b.h, b.s, Math.max(18, b.l - 16), b.alpha * 0.7 * fade, 0.6);
-
-  // Irregular surrounding mass.
-  for (const p of b.parts.core) {
-    radial(ctx, b.x + p.dx, b.y + p.dy, p.r * (0.7 + 0.3 * spread), b.h, b.s, b.l, b.alpha * p.a * fade, 0.5);
+  // Body: many faint layers build up depth and feathered edges.
+  const layerAlpha = (spec.alpha * 0.9) / Math.sqrt(shape.layers.length);
+  for (const ly of shape.layers) {
+    c.fillStyle = `hsla(${ly.h}, ${ly.s}%, ${ly.l}%, ${layerAlpha})`;
+    fillPoly(c, ly.poly);
   }
 
-  // Capillary tendrils.
-  for (const chain of b.parts.tendrils) {
-    for (const p of chain) {
-      radial(ctx, b.x + p.dx * spread, b.y + p.dy * spread, p.r, b.h, b.s, b.l, b.alpha * p.a * fade * 0.85, 0.5);
-    }
+  // Pooled core where the pigment settles darkest.
+  c.fillStyle = `hsla(${spec.h}, ${clampPct(spec.s)}%, ${clampPct(spec.l - 16)}%, ${spec.alpha * 0.5})`;
+  fillPoly(c, shape.core);
+
+  // Granulation specks at the edge.
+  for (const sp of shape.specks) {
+    c.fillStyle = `hsla(${spec.h}, ${clampPct(spec.s)}%, ${clampPct(spec.l - 8)}%, ${sp.a})`;
+    c.beginPath();
+    c.arc(sp.x, sp.y, sp.r, 0, TAU);
+    c.fill();
   }
 
-  // Edge feathering.
-  for (const p of b.parts.feather) {
-    radial(ctx, b.x + p.dx * spread, b.y + p.dy * spread, p.r, b.h, b.s, b.l, b.alpha * p.a * fade * 0.6, 0.5);
-  }
-
-  ctx.restore();
+  return { cv, half };
 }
 
 export function createWatercolor(paper) {
   const wet = [];
 
   function addBlot(spec, nowMs) {
-    wet.push({ ...spec, parts: buildInk(spec), born: nowMs });
+    const shape = buildShape(spec);
+    const { cv, half } = renderToCanvas(spec, shape);
+    wet.push({ cv, half, x: spec.x, y: spec.y, born: nowMs });
+  }
+
+  // Stamp the prerendered blot, blooming outward and fading in while wet.
+  function stamp(ctx, b, t) {
+    const appear = Math.min(1, t * 3); // pigment soaks in over the first third
+    const grow = 0.88 + 0.14 * ease(t); // edges creep outward as it dries
+    const r = b.half * grow;
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    ctx.globalAlpha = appear;
+    ctx.drawImage(b.cv, b.x - r, b.y - r, r * 2, r * 2);
+    ctx.restore();
   }
 
   function render(ctx, nowMs) {
     for (let i = wet.length - 1; i >= 0; i--) {
       const b = wet[i];
       const t = Math.min(1, (nowMs - b.born) / DRY_MS);
-      drawInk(ctx, b, t);
+      stamp(ctx, b, t);
       if (t >= 1) {
-        drawInk(paper.state.bctx, b, 1); // bake into the paper
+        stamp(paper.state.bctx, b, 1); // bake into the paper
         wet.splice(i, 1);
       }
     }

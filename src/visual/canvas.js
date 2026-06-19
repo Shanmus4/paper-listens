@@ -51,11 +51,13 @@ export function createPaper(visibleCanvas) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Repaint the preserved painting, rescaled to the new size.
+    // Repaint the preserved painting at its ORIGINAL pixel scale (top-left
+    // anchored). Rescaling to fit the new size would stretch the blots and
+    // ruin their shape; instead the canvas just grows or crops around the art.
     if (old.width > 0) {
       bctx.save();
       bctx.setTransform(1, 0, 0, 1, 0, 0);
-      bctx.drawImage(old, 0, 0, old.width, old.height, 0, 0, buffer.width, buffer.height);
+      bctx.drawImage(old, 0, 0);
       bctx.restore();
     }
   }
@@ -82,23 +84,34 @@ export function createPaper(visibleCanvas) {
   function drawSignature(octx, name, w) {
     const size = Math.round(w * 0.02);
     octx.font = `700 ${size}px "Caveat", cursive`;
-    octx.textBaseline = "top";
-    const tw = octx.measureText(name).width;
-    const padX = size * 0.5;
-    const padY = size * 0.28;
-    const margin = Math.round(w * 0.015);
-    const bw = tw + padX * 2;
-    const bh = size + padY * 2;
 
-    roundRect(octx, margin, margin, bw, bh, size * 0.4);
+    // Measure the real glyph box so the padding around the text is even on all
+    // sides (script fonts carry uneven side/baseline bearings, so the advance
+    // width and font size alone would leave lopsided gaps).
+    const m = octx.measureText(name);
+    const left = m.actualBoundingBoxLeft || 0;
+    const right = m.actualBoundingBoxRight || m.width;
+    const ascent = m.actualBoundingBoxAscent || size * 0.7;
+    const descent = m.actualBoundingBoxDescent || size * 0.2;
+    const textW = left + right;
+    const textH = ascent + descent;
+
+    const pad = size * 0.42; // equal padding on every side
+    const margin = Math.round(w * 0.015);
+    const bw = textW + pad * 2;
+    const bh = textH + pad * 2;
+
+    roundRect(octx, margin, margin, bw, bh, bh * 0.32);
     octx.fillStyle = "rgba(244, 237, 225, 0.86)";
     octx.fill();
     octx.lineWidth = Math.max(1, size * 0.03);
     octx.strokeStyle = "rgba(58, 52, 44, 0.18)";
     octx.stroke();
 
+    // Anchor the glyph box inside the pill using its measured bearings.
+    octx.textBaseline = "alphabetic";
     octx.fillStyle = "#3a342c";
-    octx.fillText(name, margin + padX, margin + padY);
+    octx.fillText(name, margin + pad + left, margin + pad + ascent);
   }
 
   // Save the dried painting (the buffer) as a PNG, flattened onto paper color,

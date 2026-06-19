@@ -343,7 +343,7 @@ body {
 /* Record button: dot turns red and pulses while recording. */
 .rec-dot {
   color: #c0392b;
-  font-size: 0.8em;
+  font-size: 1.15em;
 }
 
 .action.recording {
@@ -377,22 +377,36 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  font-size: 0.95rem;
-  color: var(--ink);
+  width: 50px;
+  height: 50px;
+  color: var(--ink); /* dark brown icons */
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: var(--shadow);
+  box-shadow: 0 4px 14px rgba(58, 52, 44, 0.18), 0 1px 3px rgba(58, 52, 44, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(6px);
-  transition: transform 0.12s ease, background 0.12s ease;
+  transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* Optically centre the play triangle (it reads left-heavy when geometrically centred). */
+.transport-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
 }
 
 .transport-btn:hover {
   transform: translateY(-1px);
   background: rgba(248, 243, 234, 0.95);
+  box-shadow: 0 6px 18px rgba(58, 52, 44, 0.22), 0 1px 3px rgba(58, 52, 44, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.transport-btn:active {
+  transform: translateY(0);
 }
 
 /* ---------- Save modal ---------- */
@@ -437,10 +451,11 @@ body {
 }
 
 .modal-sub {
-  margin-top: 6px;
-  font-size: 0.85rem;
+  margin-top: 14px;
+  font-size: 0.9rem;
+  font-weight: 500;
   color: var(--ink-soft);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 /* Handwritten input: typing previews how the signature will look. */
@@ -499,17 +514,15 @@ body {
 
 @media (max-width: 640px) {
   .headline {
-    font-size: clamp(1.8rem, 8vw, 2.6rem);
+    font-size: clamp(1.6rem, 7vw, 2.2rem);
   }
 
+  /* Keep the headline and Controls pill side by side (headline left, pill
+     top-right) instead of stacking the pill below the text. */
   .topbar {
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  /* Keep the Controls pill on the right so its panel never runs off-screen. */
-  .controls-wrap {
-    align-self: flex-end;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
   }
 
   .controls-panel {
@@ -526,6 +539,11 @@ body {
     flex: 1;
     justify-content: center;
     padding: 12px 8px;
+  }
+
+  /* Sit the playback control above the action bar so it isn't hidden behind it. */
+  .transport {
+    bottom: calc(max(var(--gap), env(safe-area-inset-bottom)) + 66px);
   }
 
   .level-wrap {

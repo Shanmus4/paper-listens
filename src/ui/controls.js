@@ -2,6 +2,17 @@
 // (microphone / upload drop box), sensitivity, New Sheet, and the Save modal.
 // Audio/painting logic is injected via callbacks.
 
+// Soft, rounded transport icons in the UI's dark-brown ink tone. Rounded
+// joins keep them from looking sharp against the paper aesthetic.
+const ICON_PAUSE =
+  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
+  '<rect x="7" y="6" width="3.6" height="12" rx="1.8" fill="currentColor"/>' +
+  '<rect x="13.4" y="6" width="3.6" height="12" rx="1.8" fill="currentColor"/></svg>';
+const ICON_PLAY =
+  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
+  '<path d="M9 6.4 L17.6 12 L9 17.6 Z" fill="currentColor" stroke="currentColor" ' +
+  'stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+
 export function wireControls({
   onMic,
   onFile,
@@ -35,6 +46,10 @@ export function wireControls({
   const saveName = document.getElementById("saveName");
   const saveConfirm = document.getElementById("saveConfirm");
   const saveCancel = document.getElementById("saveCancel");
+  const saveTitle = document.getElementById("saveTitle");
+  const saveSub = document.getElementById("saveSub");
+
+  playIcon.innerHTML = ICON_PAUSE;
 
   function setActiveSource(which) {
     srcMic.classList.toggle("seg--on", which === "mic");
@@ -100,34 +115,51 @@ export function wireControls({
   // --- New Sheet ---
   clearBtn.addEventListener("click", () => onClear?.());
 
-  // --- Save modal ---
-  function openSave() {
+  // --- Name modal (shared by Save image and Save recording) ---
+  // Resolves with the trimmed name, or null if the user cancels.
+  let resolveModal = null;
+  function promptName({ title, sub, confirmLabel }) {
+    saveTitle.textContent = title;
+    saveSub.textContent = sub;
+    saveConfirm.textContent = confirmLabel;
     saveName.value = "";
     saveModal.hidden = false;
     saveName.focus();
+    return new Promise((resolve) => {
+      resolveModal = resolve;
+    });
   }
-  function closeSave() {
+  function closeModal(result) {
+    if (saveModal.hidden) return;
     saveModal.hidden = true;
+    const done = resolveModal;
+    resolveModal = null;
+    done?.(result);
   }
-  function confirmSave() {
-    closeSave();
-    onSave?.(saveName.value.trim());
-  }
-  saveBtn.addEventListener("click", openSave);
-  saveCancel.addEventListener("click", closeSave);
-  saveBackdrop.addEventListener("click", closeSave);
-  saveConfirm.addEventListener("click", confirmSave);
+  saveCancel.addEventListener("click", () => closeModal(null));
+  saveBackdrop.addEventListener("click", () => closeModal(null));
+  saveConfirm.addEventListener("click", () => closeModal(saveName.value.trim()));
   saveName.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") confirmSave();
-    if (e.key === "Escape") closeSave();
+    if (e.key === "Enter") closeModal(saveName.value.trim());
+    if (e.key === "Escape") closeModal(null);
   });
 
-  // --- Record + transport ---
+  saveBtn.addEventListener("click", async () => {
+    const name = await promptName({
+      title: "Name your piece",
+      sub: "It will be signed in the corner of your painting. Leave blank to skip.",
+      confirmLabel: "Save image",
+    });
+    if (name !== null) onSave?.(name);
+  });
+
+  // --- Record + transport (independent of each other) ---
   recordBtn.addEventListener("click", () => onRecordToggle?.());
   playPause.addEventListener("click", () => onTogglePlay?.());
 
   return {
     setActiveSource,
+    promptName,
     setRecording(on) {
       recordBtn.classList.toggle("recording", on);
       recordLabel.textContent = on ? "Stop" : "Record";
@@ -136,7 +168,8 @@ export function wireControls({
       transport.hidden = !on;
     },
     setPlaying(on) {
-      playIcon.textContent = on ? "❚❚" : "▶";
+      // While playing, the button offers Pause; while paused, it offers Play.
+      playIcon.innerHTML = on ? ICON_PAUSE : ICON_PLAY;
     },
     hideRecord() {
       recordBtn.hidden = true;

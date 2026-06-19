@@ -104,7 +104,7 @@
       <!-- Playback transport for uploaded audio (bottom-center). -->
       <div id="transport" class="transport" hidden>
         <button id="playPause" class="transport-btn" type="button" aria-label="Play or pause">
-          <span class="transport-icon">❚❚</span>
+          <span class="transport-icon"></span>
         </button>
       </div>
 
@@ -126,7 +126,7 @@
       <div class="modal-backdrop" id="saveBackdrop"></div>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="saveTitle">
         <h2 id="saveTitle" class="modal-title">Name your piece</h2>
-        <p class="modal-sub">It will be signed in the corner of your painting. Leave blank to skip.</p>
+        <p id="saveSub" class="modal-sub">It will be signed in the corner of your painting. Leave blank to skip.</p>
         <input id="saveName" class="modal-input" type="text" placeholder="Untitled" maxlength="40" autocomplete="off" />
         <div class="modal-actions">
           <button id="saveCancel" class="seg" type="button">Cancel</button>

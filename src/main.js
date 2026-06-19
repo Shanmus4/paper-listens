@@ -37,6 +37,7 @@ let analyzer = null;
 let firstPaint = false;
 let currentSource = null; // "mic" | "file"
 let ui = null; // controls API, set after wiring
+let userPaused = false; // true only when the user hit pause on purpose
 
 // ---- Render loop ----
 function frame() {
@@ -145,6 +146,7 @@ function teardownSource() {
 async function startMic() {
   const changed = currentSource !== "mic";
   teardownSource();
+  userPaused = false;
   try {
     source = await createMicSource();
     analyzer = createAnalyzer(source, onAudioFrame);
@@ -162,6 +164,7 @@ async function startMic() {
 
 async function startFile(file) {
   teardownSource();
+  userPaused = false;
   try {
     source = await createFileSource(file, { onEnded: () => ui?.setPlaying(false) });
     analyzer = createAnalyzer(source, onAudioFrame);
@@ -190,9 +193,18 @@ ui = wireControls({
     onsetDetector.setSensitivity(value);
   },
   onRecordToggle: async () => {
+    // Recording is fully independent of playback: it only starts/stops the
+    // canvas capture and never touches the audio transport.
     if (recorder.isActive()) {
       ui.setRecording(false);
-      await recorder.stop("paper-listens");
+      const result = await recorder.stop();
+      if (!result) return;
+      const name = await ui.promptName({
+        title: "Name your recording",
+        sub: "It will be saved as a video to your device. Leave blank to skip.",
+        confirmLabel: "Save video",
+      });
+      recorder.download(result.blob, result.ext, name || "paper-listens");
     } else if (recorder.start()) {
       ui.setRecording(true);
     }
@@ -202,8 +214,10 @@ ui = wireControls({
     if (!ctx) return;
     if (ctx.state === "running") {
       ctx.suspend();
+      userPaused = true;
       ui.setPlaying(false);
     } else {
+      userPaused = false;
       ctx.resume();
       ui.setPlaying(true);
     }
@@ -211,8 +225,11 @@ ui = wireControls({
 });
 if (!recorder.supported()) ui.hideRecord();
 
-// iOS/Safari: resume a suspended context on the first user gesture.
+// iOS/Safari start audio contexts suspended until a user gesture. Resume on
+// the first gesture, but never override an intentional pause (otherwise tapping
+// Save or Record would secretly restart paused playback).
 function resumeOnGesture() {
+  if (userPaused) return;
   if (source?.audioContext?.state === "suspended") source.audioContext.resume();
 }
 document.addEventListener("pointerdown", resumeOnGesture, { once: false });
