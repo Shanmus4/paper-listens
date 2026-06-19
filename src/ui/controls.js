@@ -22,6 +22,8 @@ export function wireControls({
   onRecordToggle,
   onTogglePlay,
   onGrid,
+  onSeek,
+  onSeekCommit,
 }) {
   const controlsToggle = document.getElementById("controlsToggle");
   const controlsPanel = document.getElementById("controlsPanel");
@@ -32,6 +34,14 @@ export function wireControls({
   const transport = document.getElementById("transport");
   const playPause = document.getElementById("playPause");
   const playIcon = playPause.querySelector(".transport-icon");
+  const seek = document.getElementById("seek");
+  const seekTime = document.getElementById("seekTime");
+  let seekScrubbing = false;
+
+  const fmtTime = (sec) => {
+    sec = Math.max(0, Math.floor(sec || 0));
+    return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  };
 
   const srcMic = document.getElementById("srcMic");
   const srcFile = document.getElementById("srcFile");
@@ -82,10 +92,12 @@ export function wireControls({
   srcFile.addEventListener("click", () => setActiveSource("file"));
 
   // --- Drop box ---
+  let lastFileName = "";
   function loadFile(file) {
     if (!file) return;
+    lastFileName = file.name;
     setActiveSource("file");
-    dropMain.textContent = `♪ ${file.name}`;
+    dropMain.textContent = `Reading ${file.name}…`;
     onFile?.(file);
   }
   dropZone.addEventListener("click", () => fileInput.click());
@@ -163,15 +175,40 @@ export function wireControls({
   recordBtn.addEventListener("click", () => onRecordToggle?.());
   playPause.addEventListener("click", () => onTogglePlay?.());
 
+  // --- Seek bar ---
+  seek.addEventListener("input", () => {
+    seekScrubbing = true;
+    const t = Number(seek.value);
+    seekTime.textContent = fmtTime(t);
+    onSeek?.(t);
+  });
+  seek.addEventListener("change", () => {
+    seekScrubbing = false;
+    onSeekCommit?.(Number(seek.value));
+  });
+
   return {
     setActiveSource,
     promptName,
+    setLoaded() {
+      dropMain.textContent = lastFileName ? `♪ ${lastFileName}` : "Drop a file here, or browse";
+    },
     setRecording(on) {
       recordBtn.classList.toggle("recording", on);
       recordLabel.textContent = on ? "Stop" : "Record";
     },
     showTransport(on) {
       transport.hidden = !on;
+    },
+    setSeekDuration(seconds) {
+      seek.max = String(seconds || 0);
+      seek.value = "0";
+      seekTime.textContent = fmtTime(0);
+    },
+    setSeekValue(seconds) {
+      if (seekScrubbing) return; // don't fight the user's drag
+      seek.value = String(seconds);
+      seekTime.textContent = fmtTime(seconds);
     },
     setPlaying(on) {
       // While playing, the button offers Pause; while paused, it offers Play.

@@ -4,12 +4,14 @@
 import { createPaper } from "./visual/canvas.js";
 import { wireControls } from "./ui/controls.js";
 import { createLevelMeter } from "./ui/level.js";
-import { createMicSource, createFileSource } from "./audio/source.js";
+import { createMicSource, createFilePlayer } from "./audio/source.js";
 import { createAnalyzer } from "./audio/features.js";
+import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
 import { mapPitched, mapPercussive } from "./visual/synesthesia.js";
+import { seededRng } from "./visual/rng.js";
 import { drawGrid } from "./visual/grid.js";
 import { createWatercolor } from "./visual/watercolor.js";
 import { createPercussion } from "./visual/percussion.js";
@@ -41,6 +43,13 @@ let ui = null; // controls API, set after wiring
 let userPaused = false; // true only when the user hit pause on purpose
 let gridVisible = false; // overlay that reveals the note map
 
+// File playback timeline (set when a song is loaded).
+let player = null;
+let events = []; // [{ t, type, cls, frame, vibrancy, seed }] sorted by time
+let evtPtr = 0; // next event to paint
+let renderedT = 0; // the song time the painting currently reflects (sec)
+let scrubbing = false; // true while the user drags the seek bar
+
 // ---- Render loop ----
 function frame() {
   const { ctx, buffer, width, height } = paper.state;
@@ -48,6 +57,14 @@ function frame() {
   ctx.fillStyle = PAPER_COLOR;
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, 0, 0, width, height);
+  // Drive file playback: paint events up to the current play position, and
+  // keep the seek bar in step (unless the user is dragging it).
+  if (player && currentSource === "file" && !scrubbing) {
+    const pos = player.position();
+    paintToTime(pos, false, now);
+    ui?.setSeekValue(pos);
+  }
+
   watercolor.render(ctx, now);
   percussion.render(ctx, now);
   if (gridVisible) drawGrid(ctx, width, height);
@@ -55,6 +72,42 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// ---- Timeline painting (file playback + seeking) ----
+// Paint one analyzed event, either animated (live playback) or baked instantly
+// (rebuilding the painting at a seek position).
+function paintEvent(ev, nowMs, instant) {
+  const dims = { width: paper.state.width, height: paper.state.height };
+  const rng = seededRng(ev.seed);
+  if (ev.type === "pitched") {
+    for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, rng)) {
+      if (instant) watercolor.bake(blot);
+      else watercolor.addBlot(blot, nowMs);
+    }
+  } else {
+    const splat = mapPercussive(ev.cls, ev.frame, dims, rng);
+    if (instant) percussion.bake(splat);
+    else percussion.addSplat(splat, nowMs);
+  }
+}
+
+// Make the painting reflect song time `t`. Moving forward paints only the new
+// events; moving backward clears and replays from the start (ink can't be
+// un-painted). `instant` bakes without the wet animation (used while seeking).
+function paintToTime(t, instant, nowMs = performance.now()) {
+  if (t < renderedT) {
+    clearCanvas();
+    evtPtr = 0;
+  }
+  let painted = false;
+  while (evtPtr < events.length && events[evtPtr].t <= t) {
+    paintEvent(events[evtPtr], nowMs, instant);
+    evtPtr++;
+    painted = true;
+  }
+  renderedT = t;
+  if (painted) fadeHeadline();
+}
 
 // ---- Onset -> classify -> paint, classifying from the SUSTAIN not the attack.
 const CLASSIFY_FRAMES = 3;
@@ -141,6 +194,11 @@ function teardownSource() {
   source?.stop();
   analyzer = null;
   source = null;
+  player = null;
+  events = [];
+  evtPtr = 0;
+  renderedT = 0;
+  scrubbing = false;
   pending = null;
   onsetDetector = createOnsetDetector({ sensitivity });
   modeTracker = createModeTracker();
@@ -169,20 +227,37 @@ async function startFile(file) {
   teardownSource();
   userPaused = false;
   try {
-    source = await createFileSource(file, { onEnded: () => ui?.setPlaying(false) });
-    analyzer = createAnalyzer(source, onAudioFrame);
-    analyzer.start();
-    source.start();
-    micHint.hidden = true;
+    player = await createFilePlayer(file, { onEnded: () => ui?.setPlaying(false) });
+    // Let the "Reading…" state paint before the (blocking) analysis pass.
+    await new Promise((r) => setTimeout(r, 16));
+    const result = analyzeBuffer(player.audioBuffer, { sensitivity });
+    events = result.events;
+    evtPtr = 0;
+    renderedT = 0;
+
+    source = player;
     currentSource = "file";
+    micHint.hidden = true;
     clearCanvas(); // a new file always starts a fresh sheet
+    ui?.setLoaded();
     ui?.showTransport(true);
+    ui?.setSeekDuration(result.duration);
+    ui?.setSeekValue(0);
+    player.start();
     ui?.setPlaying(true);
   } catch (err) {
     console.error("[paper-listens] file failed:", err);
     micHint.hidden = false;
     micHint.textContent = "Could not read that audio file. Try another one.";
   }
+}
+
+// Jump playback + painting to song time `t` (seconds).
+function seekTo(t) {
+  if (currentSource !== "file" || !player) return;
+  player.seek(t);
+  paintToTime(t, true);
+  ui?.setSeekValue(t);
 }
 
 // ---- Wire UI ----
@@ -197,6 +272,18 @@ ui = wireControls({
   },
   onGrid: (on) => {
     gridVisible = on;
+  },
+  // Dragging the seek bar: preview the painting at that time (audio waits for
+  // release, so scrubbing doesn't machine-gun the audio with restarts).
+  onSeek: (t) => {
+    scrubbing = true;
+    paintToTime(t, true);
+  },
+  // Released the seek bar: jump the audio to match and resume normal playback.
+  onSeekCommit: (t) => {
+    scrubbing = false;
+    if (player) player.seek(t);
+    paintToTime(t, true);
   },
   onRecordToggle: async () => {
     // Recording is fully independent of playback: it only starts/stops the
@@ -215,16 +302,21 @@ ui = wireControls({
       ui.setRecording(true);
     }
   },
-  onTogglePlay: () => {
-    const ctx = source?.audioContext;
-    if (!ctx) return;
-    if (ctx.state === "running") {
-      ctx.suspend();
+  onTogglePlay: async () => {
+    if (currentSource !== "file" || !player) return;
+    if (player.isEnded()) {
+      // Finished: a tap replays from the start.
+      seekTo(0);
+      userPaused = false;
+      await player.play();
+      ui.setPlaying(true);
+    } else if (player.audioContext.state === "running") {
+      player.pause();
       userPaused = true;
       ui.setPlaying(false);
     } else {
       userPaused = false;
-      ctx.resume();
+      await player.play();
       ui.setPlaying(true);
     }
   },
@@ -245,5 +337,14 @@ startMic();
 
 // Dev hook for local testing without a mic.
 if (DEBUG) {
-  window.__pl = { feed: onAudioFrame, paper, watercolor, percussion };
+  window.__pl = {
+    feed: onAudioFrame,
+    paper,
+    watercolor,
+    percussion,
+    startFile,
+    seekTo,
+    getEvents: () => events,
+    getPlayer: () => player,
+  };
 }

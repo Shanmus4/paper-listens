@@ -178,9 +178,17 @@ export function createWatercolor(paper) {
     }
   }
 
+  // Paint a blot straight into the paper buffer, fully dry, no animation.
+  // Used when rebuilding the painting at a seek position.
+  function bake(spec) {
+    const shape = buildShape(spec);
+    const { cv, half } = renderToCanvas(spec, shape);
+    stamp(paper.state.bctx, { cv, half, x: spec.x, y: spec.y }, 1);
+  }
+
   function clear() {
     wet.length = 0;
   }
 
-  return { addBlot, render, clear, count: () => wet.length };
+  return { addBlot, bake, render, clear, count: () => wet.length };
 }

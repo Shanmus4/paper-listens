@@ -371,10 +371,60 @@ body {
   bottom: max(var(--gap), env(safe-area-inset-bottom));
   transform: translateX(-50%);
   pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 8px 8px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
 }
 
 .transport[hidden] {
   display: none;
+}
+
+/* Seek bar: a slim sepia track that fills as the song plays. */
+.seek {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 180px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(58, 52, 44, 0.16);
+  cursor: pointer;
+  outline: none;
+}
+
+.seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 2px solid var(--paper);
+  box-shadow: 0 1px 4px rgba(58, 52, 44, 0.3);
+}
+
+.seek::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 1px 4px rgba(58, 52, 44, 0.3);
+}
+
+.seek-time {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
 }
 
 .transport-btn {
@@ -547,7 +597,12 @@ body {
 
   /* Sit the playback control above the action bar so it isn't hidden behind it. */
   .transport {
-    bottom: calc(max(var(--gap), env(safe-area-inset-bottom)) + 66px);
+    bottom: calc(max(var(--gap), env(safe-area-inset-bottom)) + 72px);
+    max-width: calc(100vw - 2 * var(--gap));
+  }
+
+  .seek {
+    width: clamp(110px, 42vw, 180px);
   }
 
   .level-wrap {

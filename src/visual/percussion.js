@@ -114,10 +114,16 @@ export function createPercussion(paper) {
     }
   }
 
+  // Paint a splatter straight into the paper buffer, fully settled, no
+  // animation. Used when rebuilding the painting at a seek position.
+  function bake(spec) {
+    drawSplat(paper.state.bctx, { ...spec, parts: buildSpray(spec) }, 1);
+  }
+
   function clear() {
     splats.length = 0;
     pulse = 0;
   }
 
-  return { addSplat, render, clear, count: () => splats.length };
+  return { addSplat, bake, render, clear, count: () => splats.length };
 }
