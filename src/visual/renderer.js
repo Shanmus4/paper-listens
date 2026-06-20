@@ -1,14 +1,15 @@
 // renderer.js — one painting interface, two backends.
 //
-// Prefers the WebGL ink renderer (gl/ink.js). If WebGL2 + float targets are
+// Prefers the WebGL fluid ink renderer (gl/fluid). If WebGL2 + float targets are
 // unavailable it falls back to the original Canvas 2D watercolor renderer, so
 // the app still works everywhere. main.js talks only to this facade and never
 // cares which backend is live.
 //
 // Both backends share the same surface:
 //   dims()                      -> { width, height, dpr } in CSS pixels
-//   addBlot(spec, now) / addSplat(spec, now)   animated (wet) ink
-//   bake(spec) / bakeSplat(spec)               instant bake (seek rebuild)
+//   addBlot(spec, now) / addSplat(spec, now)   inject ink at a note
+//   bake(spec) / bakeSplat(spec)               inject during seek rebuild
+//   stepTo(songT)               advance the fluid sim to a song time (GL only)
 //   render(now)                 draw the painting to the paper canvas
 //   renderGrid(visible)         draw the note-grid overlay (separate canvas)
 //   clear() / purge() / resize()
@@ -17,7 +18,7 @@
 import { createPaper } from "./canvas.js";
 import { createWatercolor } from "./watercolor.js";
 import { createPercussion } from "./percussion.js";
-import { createInk } from "./gl/ink.js";
+import { createFluidInk } from "./gl/fluid/index.js";
 import { drawGrid } from "./grid.js";
 import { renderSignature, downloadCanvasPNG } from "./signature.js";
 
@@ -44,7 +45,7 @@ export function createRenderer(paperCanvas, overlayCanvas) {
   // context, shader compile, etc.) falls back to the Canvas 2D renderer.
   let ink = null;
   try {
-    ink = createInk(paperCanvas);
+    ink = createFluidInk(paperCanvas);
   } catch (err) {
     console.error("[paper-listens] WebGL init failed, using Canvas 2D:", err);
     ink = null;
@@ -93,6 +94,7 @@ function glRenderer(ink, overlayCanvas, octx) {
     addSplat: ink.addSplat,
     bake: ink.bake,
     bakeSplat: ink.bakeSplat,
+    stepTo: ink.stepTo,
     render: ink.render,
     renderGrid,
     clear: ink.clear,
@@ -130,6 +132,7 @@ function canvasRenderer(paperCanvas, overlayCanvas, octx) {
     addSplat: (spec, now) => percussion.addSplat(spec, now),
     bake: (spec) => watercolor.bake(spec),
     bakeSplat: (spec) => percussion.bake(spec),
+    stepTo() {}, // the Canvas 2D painting is static; no simulation to advance
     render(now) {
       const { ctx, buffer, width, height } = paper.state;
       ctx.fillStyle = PAPER_CSS;

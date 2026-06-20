@@ -56,14 +56,15 @@ export function gridCell(pc, octave, width, height) {
   };
 }
 
-// Pitch class -> color. Hue is fixed per note; vibrancy (mode), octave, and
-// brightness shape saturation and lightness (higher/brighter = lighter).
+// Sound -> color by brightness/mood (not by pitch — position already carries
+// which note). Dark, heavy sounds paint deep warm tones; bright, airy sounds
+// paint cool light tones. Mode (vibrancy) nudges saturation and lightness so a
+// major-key passage feels a touch brighter than a minor one.
 export function noteColor(pc, octave, vibrancy, centroidHz) {
-  const hue = pc * 30; // C=0(red) ... B=330
   const bright = brightness(centroidHz);
-  const octT = clamp((octave - OCT_MIN) / (OCT_MAX - OCT_MIN), 0, 1);
-  const sat = clamp(70 * vibrancy, 22, 96);
-  const light = clamp(36 + (vibrancy - 1) * 12 + bright * 10 + octT * 14, 24, 72);
+  const hue = 15 + bright * 195; // 15 (warm) -> 210 (cool)
+  const sat = clamp((78 - bright * 20) * vibrancy, 30, 92);
+  const light = clamp(40 + bright * 22 + (vibrancy - 1) * 8, 28, 70);
   return { h: hue, s: sat, l: light };
 }
 
@@ -86,8 +87,9 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
   return classified.notes.map(({ pc, octave, energy }) => {
     const cell = gridCell(pc, octave, width, height);
     const color = noteColor(pc, octave, vibrancy, frame.centroidHz);
-    // Keep blots within their cell-ish footprint so the grid reads cleanly.
-    const radius = Math.min(minDim * (0.02 + e * 0.045), cell.cellW * 0.5) * (0.7 + 0.3 * energy);
+    // Big, free billows that spill well past the note's home cell — the fluid
+    // carries and mixes them, so they fill space instead of reading as a grid.
+    const radius = minDim * (0.05 + e * 0.1) * (0.7 + 0.3 * energy);
     return {
       x: cell.x,
       y: cell.y,
@@ -96,8 +98,8 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
       l: color.l,
       radius,
       alpha,
-      // Brighter timbres finger out into sharper tendrils; darker ones bloom
-      // soft and round. Consumed by the WebGL ink shader (u_edge).
+      // How hard the note pushes into the water (drives the velocity impulse).
+      speed: 0.3 + e * 0.7,
       edge: 0.35 + bright * 0.45,
       grain,
       seed: rng(),

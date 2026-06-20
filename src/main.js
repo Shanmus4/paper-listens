@@ -48,6 +48,9 @@ let evtPtr = 0; // next event to paint
 let renderedT = 0; // the song time the painting currently reflects (sec)
 let scrubbing = false; // true while the user drags the seek bar
 let scrubTargetT = 0; // latest scrub position, repainted at most once per frame
+let lastAnchor = null; // previous pitched note's home, for melodic spread direction
+let micSimT = 0; // mic mode has no timeline, so we drive the fluid by wall time
+let lastFrameMs = performance.now();
 let fileEnv = null; // loudness envelope of the loaded song (drives the meter)
 let fileEnvStep = 1; // seconds between envelope samples
 // Bumped on every teardown. A file load (which is async) captures the token at
@@ -65,21 +68,25 @@ function levelAt(t) {
 // ---- Render loop ----
 function frame() {
   const now = performance.now();
-  // Drive file playback. While the user scrubs, repaint to the latest drag
-  // position at most once per frame (cheap thanks to the blot cache); when
-  // playing normally, advance with the play position and move the seek bar.
+  // Drive file playback. The fluid sim is path-dependent, so we don't rebuild it
+  // every frame while scrubbing (that would re-simulate from the start on each
+  // drag event); we just move the meter and rebuild once on release.
   if (player && currentSource === "file") {
     if (scrubbing) {
-      if (scrubTargetT !== renderedT) paintToTime(scrubTargetT, true);
       levelMeter.push(levelAt(scrubTargetT));
     } else {
       const pos = player.position();
-      paintToTime(pos, false, now);
+      paintToTime(pos, false, now); // advances the fluid sim and injects notes
       ui?.setSeekValue(pos);
       // Feed the meter from the song so it moves during playback, not just mic.
       levelMeter.push(player.isPlaying() ? levelAt(pos) : 0);
     }
+  } else if (currentSource === "mic") {
+    // No timeline in mic mode: advance the fluid by real elapsed time.
+    micSimT += Math.min(0.05, (now - lastFrameMs) / 1000);
+    renderer.stepTo(micSimT);
   }
+  lastFrameMs = now;
 
   renderer.render(now);
   renderer.renderGrid(gridVisible);
@@ -87,6 +94,27 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// Give a pitched blot its spread direction from the melody: ink reaches from the
+// previous note's home toward this one. Notes that repeat the same spot get a
+// gentle seeded puff so they still billow. Direction is consumed by the fluid
+// renderer as a velocity impulse; the Canvas 2D fallback ignores it.
+function seededDir(seed) {
+  const a = (seed != null ? seed : 0.5) * Math.PI * 2 * 5 + 0.7;
+  return [Math.cos(a), Math.sin(a)];
+}
+function attachMotion(blot) {
+  if (lastAnchor) {
+    const dx = blot.x - lastAnchor.x;
+    const dy = blot.y - lastAnchor.y;
+    const len = Math.hypot(dx, dy);
+    blot.dir = len > 1 ? [dx / len, dy / len] : seededDir(blot.seed);
+  } else {
+    blot.dir = seededDir(blot.seed);
+  }
+  lastAnchor = { x: blot.x, y: blot.y };
+  return blot;
+}
 
 // ---- Timeline painting (file playback + seeking) ----
 // Paint one analyzed event, either animated (live playback) or baked instantly
@@ -96,6 +124,7 @@ function paintEvent(ev, nowMs, instant) {
   const rng = seededRng(ev.seed);
   if (ev.type === "pitched") {
     for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, rng)) {
+      attachMotion(blot);
       if (instant) renderer.bake(blot);
       else renderer.addBlot(blot, nowMs);
     }
@@ -116,10 +145,12 @@ function paintToTime(t, instant, nowMs = performance.now()) {
   }
   let painted = false;
   while (evtPtr < events.length && events[evtPtr].t <= t) {
+    renderer.stepTo(events[evtPtr].t); // evolve the fluid up to this note's time
     paintEvent(events[evtPtr], nowMs, instant);
     evtPtr++;
     painted = true;
   }
+  renderer.stepTo(t); // finish evolving to the requested moment
   renderedT = t;
   if (painted) fadeHeadline();
 }
@@ -181,6 +212,7 @@ function finalizeOnset(now) {
   const dims = renderer.dims();
   if (cls.type === "pitched") {
     for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
+      attachMotion(blot);
       renderer.addBlot(blot, now);
     }
   } else {
@@ -198,6 +230,8 @@ function fadeHeadline() {
 // ---- Source management ----
 function clearCanvas() {
   renderer.clear();
+  lastAnchor = null; // a fresh sheet restarts the melodic spread chain
+  micSimT = 0; // and the mic sim clock, to match the reset fluid field
   firstPaint = false;
   headline.classList.remove("faded");
 }
