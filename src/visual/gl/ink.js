@@ -17,13 +17,27 @@
 import { createGLContext, sizeCanvas } from "./context.js";
 import { createProgram } from "./program.js";
 import { createFBO, clearFBO, deleteFBO, blitFBO } from "./fbo.js";
-import { BLOT_VS, BLOT_FS, QUAD_VS, TONEMAP_FS } from "./shaders.js";
+import { BLOT_VS, BLOT_FS, FADE_FS, QUAD_VS, TONEMAP_FS } from "./shaders.js";
 import { seededRng } from "../rng.js";
 
 const BLOT_EXTENT = 2.2; // quad half-size as a multiple of radius (room for tendrils)
 const PITCH_LIFETIME = 900; // ms wet->dry for pitched blots (slow watercolor bloom)
 const PERC_LIFETIME = 300; // ms for percussion splatter (settles fast)
 const STRENGTH_K = 1.8; // scales spec alpha into absorbance density
+const PITCH_FLOW = 0.7; // plume reach for pitched blots (seeded direction)
+const PERC_FLOW = 0.5; // outward plume reach for splatter droplets
+// Decay-on-restrike: when a new pitched blot lands on a cell, the pigment
+// already there is multiplied by this before the new ink is added. Repeated
+// hits settle at A* = s/(1-PITCH_DECAY) — a finite deep tone, never black,
+// never zero. Lower = older strokes fade faster and the cell stays lighter.
+const PITCH_DECAY = 0.72;
+
+// Deterministic plume direction for a pitched blot, from its seed. Each note
+// streaks its own way so the field reads as ink in water, not a row of discs.
+function pitchFlow(seed) {
+  const ang = (seed != null ? seed : 0.5) * Math.PI * 2 * 6.0 + 1.3;
+  return [Math.cos(ang) * PITCH_FLOW, Math.sin(ang) * PITCH_FLOW];
+}
 
 // Warm ink tones for drums (mirrors the old percussion palette), as HSL.
 const DRUM_INK = {
@@ -72,9 +86,11 @@ function splatBlots(spec) {
   const ink = DRUM_INK[spec.drum] || DRUM_INK.snare;
   const color = hslToRgb(ink.h, ink.s, ink.l);
   const strength = (spec.alpha || 0.4) * STRENGTH_K;
+  const ca = rand() * Math.PI * 2; // gentle drift for the central blob
   const blots = [
     { x: spec.x, y: spec.y, radius: spec.radius, color, seed: rand(),
-      strength, edge: 0.2, grain: 0.7 },
+      strength, edge: 0.2, grain: 0.7,
+      flow: [Math.cos(ca) * PERC_FLOW * 0.4, Math.sin(ca) * PERC_FLOW * 0.4] },
   ];
   const n = spec.count || 6;
   for (let i = 0; i < n; i++) {
@@ -89,6 +105,8 @@ function splatBlots(spec) {
       strength: strength * (0.4 + rand() * 0.5),
       edge: 0.15,
       grain: 0.8,
+      // Droplets stream away from the impact point, like a real splatter.
+      flow: [Math.cos(a) * PERC_FLOW, Math.sin(a) * PERC_FLOW],
     });
   }
   return blots;
@@ -96,15 +114,18 @@ function splatBlots(spec) {
 
 // A pitched spec from synesthesia.mapPitched -> a renderer blot.
 function pitchedBlot(spec) {
+  const seed = spec.seed != null ? spec.seed : 0.5;
   return {
     x: spec.x,
     y: spec.y,
     radius: spec.radius,
     color: hslToRgb(spec.h, spec.s, spec.l),
-    seed: spec.seed != null ? spec.seed : 0.5,
+    seed,
     strength: (spec.alpha || 0.4) * STRENGTH_K,
     edge: spec.edge != null ? spec.edge : 0.5,
     grain: spec.grain != null ? spec.grain : 0.2,
+    flow: pitchFlow(seed),
+    kind: "pitch", // marks blots that decay prior pigment on restrike
   };
 }
 
@@ -116,6 +137,7 @@ export function createInk(canvas) {
   const gl = ctx.gl;
 
   const blot = createProgram(gl, BLOT_VS, BLOT_FS);
+  const fade = createProgram(gl, BLOT_VS, FADE_FS);
   const tonemap = createProgram(gl, QUAD_VS, TONEMAP_FS);
 
   // One quad ([-1,1] strip) shared by both programs (a_pos pinned to loc 0).
@@ -156,6 +178,8 @@ export function createInk(canvas) {
     gl.uniform1f(blot.loc("u_progress"), progress);
     gl.uniform1f(blot.loc("u_edge"), b.edge);
     gl.uniform1f(blot.loc("u_grain"), b.grain);
+    const f = b.flow || [0, 1];
+    gl.uniform2f(blot.loc("u_flow"), f[0], f[1]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
@@ -170,6 +194,32 @@ export function createInk(canvas) {
     for (const b of blots) setBlotUniforms(b, progressOf(b));
     gl.disable(gl.BLEND);
     gl.bindVertexArray(null);
+  }
+
+  // Decay-on-restrike: multiply the pigment already inside this blot's footprint
+  // by PITCH_DECAY before the new ink is added on top. Keeps a repeatedly-hit
+  // cell from stacking to black (see FADE_FS). Must run in event order so live
+  // play and seek-rebuild produce the identical painting.
+  function decayInto(fbo, b) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.fb);
+    gl.viewport(0, 0, fbo.w, fbo.h);
+    gl.useProgram(fade.program);
+    gl.bindVertexArray(vao);
+    gl.uniform2f(fade.loc("u_center"), b.x * size.dpr, b.y * size.dpr);
+    gl.uniform1f(fade.loc("u_radius"), b.radius * BLOT_EXTENT * size.dpr);
+    gl.uniform2f(fade.loc("u_res"), size.w, size.h);
+    gl.uniform1f(fade.loc("u_decay"), PITCH_DECAY);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ZERO, gl.SRC_COLOR); // dst *= src (the decay factor)
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.BLEND);
+    gl.bindVertexArray(null);
+  }
+
+  // Commit one pitched blot into baked: decay what's there, then add on top.
+  function commitPitched(b) {
+    decayInto(baked, b);
+    drawInto(baked, [b], () => 1);
   }
 
   // ---- public: add wet (animated) ink ----
@@ -189,7 +239,7 @@ export function createInk(canvas) {
 
   // ---- public: bake instantly (seek rebuild), fully bloomed, no animation ----
   function bake(spec) {
-    drawInto(baked, [pitchedBlot(spec)], () => 1);
+    commitPitched(pitchedBlot(spec));
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
   function bakeSplat(spec) {
@@ -212,7 +262,12 @@ export function createInk(canvas) {
         if (t >= 1) justDried.push(b);
         else stillWet.push(b);
       }
-      if (justDried.length) drawInto(baked, justDried, () => 1);
+      // Commit dried blots in order: pitched ones decay prior pigment first;
+      // percussion just adds (its scatter does not pile on one cell).
+      for (const b of justDried) {
+        if (b.kind === "pitch") commitPitched(b);
+        else drawInto(baked, [b], () => 1);
+      }
       blitFBO(gl, baked, work); // refresh work with the newly dried ones
       if (stillWet.length) {
         drawInto(work, stillWet, (b) => Math.max(0, (nowMs - b.born) / b.lifetime));
