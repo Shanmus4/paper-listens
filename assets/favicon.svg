@@ -1,6 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <!-- Spectrum sweep: every note has its own color, the whole note carries the rainbow. -->
+    <linearGradient id="note" x1="7" y1="5" x2="25" y2="27" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e23b6d" />
+      <stop offset="0.33" stop-color="#f0922b" />
+      <stop offset="0.62" stop-color="#33a06a" />
+      <stop offset="1" stop-color="#3a5bcc" />
+    </linearGradient>
+  </defs>
   <rect width="32" height="32" rx="7" fill="#f4ede1" />
-  <circle cx="12.5" cy="13" r="5.5" fill="#cc3a3a" opacity="0.82" />
-  <circle cx="19.5" cy="13" r="5.5" fill="#2e8b57" opacity="0.82" />
-  <circle cx="16" cy="19.5" r="5.5" fill="#3a5bcc" opacity="0.82" />
+  <g fill="url(#note)">
+    <!-- stem -->
+    <path d="M15.3 8 L17.9 7.1 L17.9 21.6 L15.3 21.6 Z" />
+    <!-- flag -->
+    <path d="M17.9 7.1 C 23.2 7.9, 25.3 11.2, 23.5 15.2 C 24.1 11.6, 21.2 9.7, 17.9 9.9 Z" />
+    <!-- note head -->
+    <ellipse cx="12" cy="21.8" rx="5.2" ry="4" transform="rotate(-20 12 21.8)" />
+  </g>
 </svg>

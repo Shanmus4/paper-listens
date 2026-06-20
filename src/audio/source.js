@@ -66,46 +66,58 @@ export async function createFilePlayer(file, { onEnded } = {}) {
   const streamDest = audioContext.createMediaStreamDestination();
 
   let node = null;
-  let offset = 0; // playback position (sec) at the moment `node` started
+  let offset = 0; // buffer position (sec) at the moment `node` started
   let startCtxTime = 0; // audioContext.currentTime when `node` started
-  let ended = false;
 
   const clamp = (t) => Math.max(0, Math.min(duration, t));
 
-  function position() {
+  // Position is derived entirely from the AudioContext clock (which freezes
+  // while suspended), NOT from any event. `rawPos` may run past `duration`
+  // once a node plays to its natural end (the clock keeps ticking after the
+  // sound stops); position() clamps, and isEnded() uses that overshoot.
+  function rawPos() {
     if (!node) return offset;
-    return clamp(offset + (audioContext.currentTime - startCtxTime));
+    return offset + (audioContext.currentTime - startCtxTime);
+  }
+  function position() {
+    return clamp(rawPos());
+  }
+  function isEnded() {
+    return rawPos() >= duration - 0.05;
   }
 
   function stopNode() {
     if (!node) return;
-    node._intentional = true; // so its onended doesn't fire the song-ended cb
+    const n = node;
+    node = null; // mark "no current node" BEFORE stop()
+    n.onended = null; // detach so a stopped node never calls back
     try {
-      node.stop();
+      n.stop();
     } catch (_) {
       /* not started */
     }
-    node.disconnect();
-    node = null;
+    n.disconnect();
   }
 
   function startAt(t) {
     stopNode();
-    ended = false;
     offset = clamp(t);
-    node = audioContext.createBufferSource();
-    node.buffer = audioBuffer;
-    node.connect(audioContext.destination); // speakers
-    node.connect(streamDest); // recording tap
-    node.onended = () => {
-      if (node && node._intentional) return; // we stopped it on purpose
-      offset = duration;
-      ended = true;
-      node = null;
-      onEnded?.();
+    const n = audioContext.createBufferSource();
+    node = n;
+    n.buffer = audioBuffer;
+    n.connect(audioContext.destination); // speakers
+    n.connect(streamDest); // recording tap
+    // The 'ended' event is used ONLY to notify the UI of a genuine end-of-song,
+    // and even then it is double-checked against the clock. It deliberately does
+    // NOT touch `node`, `offset`, or any position state: rapid seek/stop on the
+    // Web Audio thread can fire a stray 'ended' for the wrong reason, and we must
+    // never let that desync the position or strand a still-playing node.
+    n.onended = () => {
+      if (n !== node) return; // superseded by a seek/stop
+      if (rawPos() >= duration - 0.05) onEnded?.();
     };
     startCtxTime = audioContext.currentTime;
-    node.start(0, offset);
+    n.start(0, offset);
   }
 
   return {
@@ -114,20 +126,22 @@ export async function createFilePlayer(file, { onEnded } = {}) {
     duration,
     audioStream: streamDest.stream,
     position,
-    isEnded: () => ended,
-    isPlaying: () => !!node && !ended && audioContext.state === "running",
+    isEnded,
+    isPlaying: () => !!node && audioContext.state === "running" && !isEnded(),
     start() {
       startAt(0);
     },
     async play() {
-      if (ended || !node) startAt(position() >= duration ? 0 : position());
+      // From the end, replay from the top; otherwise resume where we are.
+      if (isEnded()) startAt(0);
+      else if (!node) startAt(position());
       if (audioContext.state === "suspended") await audioContext.resume();
     },
     pause() {
       if (audioContext.state === "running") audioContext.suspend();
     },
     seek(t) {
-      const wasPaused = audioContext.state === "suspended";
+      const wasPaused = audioContext.state !== "running";
       startAt(t);
       if (wasPaused) audioContext.suspend(); // stay paused at the new spot
     },
