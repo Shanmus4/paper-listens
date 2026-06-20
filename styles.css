@@ -46,6 +46,18 @@ body {
   z-index: 0;
 }
 
+/* Note-grid overlay. Sits just above the paint but below the grain so the grid
+   reads "in" the paper, matching how it looked when drawn on the paper canvas. */
+#overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+  pointer-events: none;
+}
+
 /* Grain + vignette layered over the canvas so the paint sits "in" the paper. */
 .paper-grain {
   position: fixed;

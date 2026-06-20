@@ -79,6 +79,10 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
   const { e, alpha } = intensity(frame.rms);
   const bright = brightness(frame.centroidHz);
 
+  // Noisiness of the sound -> granulation. Pure tones paint smooth, noisy ones
+  // (breathy vocals, distorted strings) get a grainy, speckled texture.
+  const grain = clamp(frame.flatness || 0, 0, 1);
+
   return classified.notes.map(({ pc, octave, energy }) => {
     const cell = gridCell(pc, octave, width, height);
     const color = noteColor(pc, octave, vibrancy, frame.centroidHz);
@@ -92,7 +96,10 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
       l: color.l,
       radius,
       alpha,
+      // Brighter timbres finger out into sharper tendrils; darker ones bloom
+      // soft and round. Consumed by the WebGL ink shader (u_edge).
       edge: 0.35 + bright * 0.45,
+      grain,
       seed: rng(),
     };
   });

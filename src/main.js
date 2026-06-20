@@ -1,7 +1,7 @@
 // main.js — entry point. Boots the canvas, auto-starts listening, owns the
 // audio pipeline, and runs the render loop that turns onsets into ink.
 
-import { createPaper } from "./visual/canvas.js";
+import { createRenderer } from "./visual/renderer.js";
 import { wireControls } from "./ui/controls.js";
 import { createLevelMeter } from "./ui/level.js";
 import { createMicSource, createFilePlayer } from "./audio/source.js";
@@ -12,24 +12,22 @@ import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
 import { mapPitched, mapPercussive } from "./visual/synesthesia.js";
 import { seededRng } from "./visual/rng.js";
-import { drawGrid } from "./visual/grid.js";
-import { createWatercolor } from "./visual/watercolor.js";
-import { createPercussion } from "./visual/percussion.js";
 import { createRecorder } from "./ui/record.js";
 
 const paperEl = document.getElementById("paper");
-const paper = createPaper(paperEl);
+const overlayEl = document.getElementById("overlay");
+// One facade over either the WebGL ink renderer or the Canvas 2D fallback.
+const renderer = createRenderer(paperEl, overlayEl);
 const levelMeter = createLevelMeter(document.getElementById("level"));
 const headline = document.getElementById("headline");
 const micHint = document.getElementById("micHint");
 
-const watercolor = createWatercolor(paper);
-const percussion = createPercussion(paper);
 const recorder = createRecorder(paperEl);
 
-const PAPER_COLOR =
-  getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#f4ede1";
 const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+
+// Keep the paint surface and the grid overlay sized to the window.
+window.addEventListener("resize", () => renderer.resize());
 
 // Audio state. onsetDetector/modeTracker are recreated when the source changes.
 let onsetDetector = createOnsetDetector({ sensitivity: 0.5 });
@@ -66,11 +64,7 @@ function levelAt(t) {
 
 // ---- Render loop ----
 function frame() {
-  const { ctx, buffer, width, height } = paper.state;
   const now = performance.now();
-  ctx.fillStyle = PAPER_COLOR;
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, 0, 0, width, height);
   // Drive file playback. While the user scrubs, repaint to the latest drag
   // position at most once per frame (cheap thanks to the blot cache); when
   // playing normally, advance with the play position and move the seek bar.
@@ -87,9 +81,8 @@ function frame() {
     }
   }
 
-  watercolor.render(ctx, now);
-  percussion.render(ctx, now);
-  if (gridVisible) drawGrid(ctx, width, height);
+  renderer.render(now);
+  renderer.renderGrid(gridVisible);
   levelMeter.render();
   requestAnimationFrame(frame);
 }
@@ -99,17 +92,17 @@ requestAnimationFrame(frame);
 // Paint one analyzed event, either animated (live playback) or baked instantly
 // (rebuilding the painting at a seek position).
 function paintEvent(ev, nowMs, instant) {
-  const dims = { width: paper.state.width, height: paper.state.height };
+  const dims = renderer.dims();
   const rng = seededRng(ev.seed);
   if (ev.type === "pitched") {
     for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, rng)) {
-      if (instant) watercolor.bake(blot);
-      else watercolor.addBlot(blot, nowMs);
+      if (instant) renderer.bake(blot);
+      else renderer.addBlot(blot, nowMs);
     }
   } else {
     const splat = mapPercussive(ev.cls, ev.frame, dims, rng);
-    if (instant) percussion.bake(splat);
-    else percussion.addSplat(splat, nowMs);
+    if (instant) renderer.bakeSplat(splat);
+    else renderer.addSplat(splat, nowMs);
   }
 }
 
@@ -185,13 +178,13 @@ function finalizeOnset(now) {
   const cls = classifyOnset(frame);
   if (DEBUG) console.log(`[onset] ${cls.type}`, cls.diag);
 
-  const dims = { width: paper.state.width, height: paper.state.height };
+  const dims = renderer.dims();
   if (cls.type === "pitched") {
     for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
-      watercolor.addBlot(blot, now);
+      renderer.addBlot(blot, now);
     }
   } else {
-    percussion.addSplat(mapPercussive(cls, frame, dims), now);
+    renderer.addSplat(mapPercussive(cls, frame, dims), now);
   }
   fadeHeadline();
 }
@@ -204,9 +197,7 @@ function fadeHeadline() {
 
 // ---- Source management ----
 function clearCanvas() {
-  paper.clear();
-  watercolor.clear();
-  percussion.clear();
+  renderer.clear();
   firstPaint = false;
   headline.classList.remove("faded");
 }
@@ -226,7 +217,7 @@ function teardownSource() {
   evtPtr = 0;
   renderedT = 0;
   scrubbing = false;
-  watercolor.purge();
+  renderer.purge();
   pending = null;
   onsetDetector = createOnsetDetector({ sensitivity });
   modeTracker = createModeTracker();
@@ -340,7 +331,7 @@ ui = wireControls({
     ui?.setPlaying(false);
   },
   onClear: clearCanvas,
-  onSave: (name) => paper.save(name),
+  onSave: (name) => renderer.save(name),
   onSensitivity: (value) => {
     sensitivity = value;
     onsetDetector.setSensitivity(value);
@@ -419,9 +410,7 @@ startMic();
 if (DEBUG) {
   window.__pl = {
     feed: onAudioFrame,
-    paper,
-    watercolor,
-    percussion,
+    renderer,
     startFile,
     seekTo,
     getEvents: () => events,
