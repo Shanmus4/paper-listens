@@ -314,6 +314,7 @@ function seekTo(t) {
   player.seek(t);
   paintToTime(t, true);
   ui?.setSeekValue(t);
+  ui?.setPlaying(player.isPlaying()); // seeking off the end resumes play
 }
 
 // The audio currently being heard, so a recording can include sound (the
@@ -357,7 +358,10 @@ ui = wireControls({
   // Released the seek bar: jump the audio to match and resume normal playback.
   onSeekCommit: (t) => {
     scrubbing = false;
-    if (player) player.seek(t);
+    if (player) {
+      player.seek(t);
+      ui?.setPlaying(player.isPlaying()); // seeking off the end resumes play
+    }
     paintToTime(t, true);
   },
   onRecordToggle: async () => {
