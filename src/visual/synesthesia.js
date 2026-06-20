@@ -56,15 +56,22 @@ export function gridCell(pc, octave, width, height) {
   };
 }
 
-// Sound -> color by brightness/mood (not by pitch — position already carries
-// which note). Dark, heavy sounds paint deep warm tones; bright, airy sounds
-// paint cool light tones. Mode (vibrancy) nudges saturation and lightness so a
-// major-key passage feels a touch brighter than a minor one.
+// Sound -> color by brightness/mood (not by pitch class — position already
+// carries which note). "Brightness" is the character of the sound: how bright
+// its timbre is AND how high/low it sits (register). Low, heavy sounds paint
+// deep warm tones; high, airy sounds paint cool light tones. Because register
+// is per-note, a chord that spans octaves paints several colors at once, and a
+// melody that climbs sweeps warm -> cool, giving the canvas real color variety
+// without ever coloring by note name. Mode (vibrancy) nudges the vividness.
 export function noteColor(pc, octave, vibrancy, centroidHz) {
-  const bright = brightness(centroidHz);
-  const hue = 15 + bright * 195; // 15 (warm) -> 210 (cool)
-  const sat = clamp((78 - bright * 20) * vibrancy, 30, 92);
-  const light = clamp(40 + bright * 22 + (vibrancy - 1) * 8, 28, 70);
+  const timbre = brightness(centroidHz);
+  const register = clamp((octave - OCT_MIN) / (OCT_MAX - OCT_MIN), 0, 1);
+  // Register leads strongly so low vs high notes clearly split warm vs cool
+  // (timbre only tints), otherwise a bright-centroid song collapses to one color.
+  const score = clamp(0.85 * register + 0.15 * timbre, 0, 1);
+  const hue = 10 + score * 230; // ~10 (deep warm red/orange) -> ~240 (cool blue)
+  const sat = clamp((90 - score * 20) * vibrancy, 40, 96);
+  const light = clamp(32 + score * 28 + (vibrancy - 1) * 6, 24, 74);
   return { h: hue, s: sat, l: light };
 }
 
@@ -87,9 +94,9 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
   return classified.notes.map(({ pc, octave, energy }) => {
     const cell = gridCell(pc, octave, width, height);
     const color = noteColor(pc, octave, vibrancy, frame.centroidHz);
-    // Big, free billows that spill well past the note's home cell — the fluid
-    // carries and mixes them, so they fill space instead of reading as a grid.
-    const radius = minDim * (0.05 + e * 0.1) * (0.7 + 0.3 * energy);
+    // Free billows that spill past the note's home cell, but kept moderate so
+    // neighbouring colors stay distinct instead of blanketing into one mud.
+    const radius = minDim * (0.03 + e * 0.06) * (0.7 + 0.3 * energy);
     return {
       x: cell.x,
       y: cell.y,

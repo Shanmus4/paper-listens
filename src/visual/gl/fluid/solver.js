@@ -24,9 +24,9 @@ import {
 const SIM_RES = 320; // longest side of the simulation grid (px)
 const PRESSURE_ITERS = 22; // Jacobi iterations per step (incompressibility)
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
-const VEL_DISSIPATION = 0.18; // how fast motion calms (per second)
-const DYE_DISSIPATION = 0.06; // how fast pigment fades/diffuses (per second)
-const CURL_STRENGTH = 24.0; // vorticity confinement (wispy tendrils)
+const VEL_DISSIPATION = 0.32; // how fast motion calms (higher = blooms settle, stay distinct)
+const DYE_DISSIPATION = 0.11; // pigment fades slowly so the canvas never saturates to mud
+const CURL_STRENGTH = 14.0; // vorticity confinement (wispy tendrils)
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
 function makeDouble(gl, w, h) {
