@@ -424,6 +424,50 @@ body {
   }
 }
 
+/* Processing pill: sits where the transport will appear, telling the user the
+   song is being read while the (blocking) analysis runs. */
+.processing-pill {
+  position: absolute;
+  left: 50%;
+  bottom: calc(max(var(--gap), env(safe-area-inset-bottom)) + 60px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  font-family: "Caveat", "Segoe Script", cursive;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.processing-pill[hidden] {
+  display: none;
+}
+
+.processing-spinner {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(58, 52, 44, 0.18);
+  border-top-color: var(--sepia);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Playback transport (bottom-center), shown for uploaded audio. */
 .transport {
   position: absolute;
@@ -574,7 +618,7 @@ body {
 
 .modal-title {
   font-family: "Caveat", cursive;
-  font-size: 2rem;
+  font-size: 1.7rem;
   font-weight: 700;
   color: var(--ink);
   line-height: 1;
@@ -711,7 +755,8 @@ body {
   }
 
   /* Sit the playback control above the action bar so it isn't hidden behind it. */
-  .transport {
+  .transport,
+  .processing-pill {
     bottom: calc(max(var(--gap), env(safe-area-inset-bottom)) + 72px);
     max-width: calc(100vw - 2 * var(--gap));
   }

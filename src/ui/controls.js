@@ -33,6 +33,7 @@ export function wireControls({
   const recordBtn = document.getElementById("recordBtn");
   const recordLabel = document.getElementById("recordLabel");
   const transport = document.getElementById("transport");
+  const processing = document.getElementById("processing");
   const playPause = document.getElementById("playPause");
   const playIcon = playPause.querySelector(".transport-icon");
   const seek = document.getElementById("seek");
@@ -122,10 +123,18 @@ export function wireControls({
     lastFile = file;
     setActiveSource("file");
     dropMain.textContent = `Reading ${file.name}…`;
+    // Close the panel so the canvas and the processing pill are unobstructed.
+    controlsPanel.hidden = true;
+    controlsToggle.setAttribute("aria-expanded", "false");
     onFile?.(file);
   }
   dropZone.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", () => loadFile(fileInput.files?.[0]));
+  fileInput.addEventListener("change", () => {
+    loadFile(fileInput.files?.[0]);
+    // Clear the value so picking the SAME file again still fires `change`
+    // (browsers skip the event when the selection is unchanged).
+    fileInput.value = "";
+  });
 
   ["dragenter", "dragover"].forEach((ev) =>
     dropZone.addEventListener(ev, (e) => {
@@ -272,6 +281,9 @@ export function wireControls({
     },
     showTransport(on) {
       transport.hidden = !on;
+    },
+    showProcessing(on) {
+      if (processing) processing.hidden = !on;
     },
     setSeekDuration(seconds) {
       seek.max = String(seconds || 0);

@@ -109,6 +109,13 @@
         <canvas id="level" width="180" height="48"></canvas>
       </div>
 
+      <!-- Shown while an uploaded song is decoding + being analyzed, in the
+           same spot the transport will occupy once it is ready. -->
+      <div id="processing" class="processing-pill" hidden aria-live="polite">
+        <span class="processing-spinner" aria-hidden="true"></span>
+        Listening to your song…
+      </div>
+
       <!-- Playback transport for uploaded audio (bottom-center). -->
       <div id="transport" class="transport" hidden>
         <button id="playPause" class="transport-btn" type="button" aria-label="Play or pause">

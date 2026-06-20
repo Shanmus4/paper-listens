@@ -52,6 +52,10 @@ let scrubbing = false; // true while the user drags the seek bar
 let scrubTargetT = 0; // latest scrub position, repainted at most once per frame
 let fileEnv = null; // loudness envelope of the loaded song (drives the meter)
 let fileEnvStep = 1; // seconds between envelope samples
+// Bumped on every teardown. A file load (which is async) captures the token at
+// its start and bails if it changes, so a load that's superseded by a new
+// upload or a source switch can never start a second, orphaned audio node.
+let loadToken = 0;
 
 // Loudness of the song at time `t`, sampled from the precomputed envelope.
 function levelAt(t) {
@@ -208,8 +212,12 @@ function clearCanvas() {
 }
 
 function teardownSource() {
+  loadToken++; // invalidate any file load still in flight
   analyzer?.stop();
   source?.stop();
+  // Stop a file player even if it hasn't been promoted to `source` yet (i.e. a
+  // load that was interrupted mid-decode), so its audio node never lingers.
+  if (player && player !== source) player.stop();
   analyzer = null;
   source = null;
   player = null;
@@ -236,6 +244,7 @@ async function startMic() {
     micHint.hidden = true;
     currentSource = "mic";
     ui?.showTransport(false);
+    ui?.showProcessing(false);
     if (changed) clearCanvas(); // switching mode starts a fresh sheet
   } catch (err) {
     console.error("[paper-listens] mic failed:", err);
@@ -244,31 +253,56 @@ async function startMic() {
 }
 
 async function startFile(file) {
-  teardownSource();
+  teardownSource(); // bumps loadToken
+  const token = loadToken; // this load's generation
   userPaused = false;
+  ui?.showTransport(false);
+  ui?.showProcessing(true); // tell the user we're reading the song
   try {
-    player = await createFilePlayer(file, { onEnded: () => ui?.setPlaying(false) });
-    // Let the "Reading…" state paint before the (blocking) analysis pass.
+    const p = await createFilePlayer(file, {
+      onEnded: () => {
+        if (player === p) ui?.setPlaying(false);
+      },
+    });
+    // Superseded while decoding (new upload, or switched to mic): drop it.
+    if (token !== loadToken) {
+      p.stop();
+      return;
+    }
+    // Promote now so a later teardown can stop this node if it interrupts us.
+    player = p;
+    source = p;
+    // Let the processing pill paint before the (blocking) analysis pass.
     await new Promise((r) => setTimeout(r, 16));
-    const result = analyzeBuffer(player.audioBuffer, { sensitivity });
+    if (token !== loadToken) {
+      p.stop();
+      return;
+    }
+    const result = analyzeBuffer(p.audioBuffer, { sensitivity });
+    if (token !== loadToken) {
+      p.stop();
+      return;
+    }
     events = result.events;
     fileEnv = result.env;
     fileEnvStep = result.envStep;
     evtPtr = 0;
     renderedT = 0;
 
-    source = player;
     currentSource = "file";
     micHint.hidden = true;
     clearCanvas(); // a new file always starts a fresh sheet
+    ui?.showProcessing(false);
     ui?.setLoaded();
     ui?.showTransport(true);
     ui?.setSeekDuration(result.duration);
     ui?.setSeekValue(0);
-    player.start();
+    p.start();
     ui?.setPlaying(true);
   } catch (err) {
+    if (token !== loadToken) return; // a newer action already moved on
     console.error("[paper-listens] file failed:", err);
+    ui?.showProcessing(false);
     micHint.hidden = false;
     micHint.textContent = "Could not read that audio file. Try another one.";
   }
@@ -301,6 +335,7 @@ ui = wireControls({
     teardownSource();
     currentSource = null;
     ui?.showTransport(false);
+    ui?.showProcessing(false);
     ui?.setPlaying(false);
   },
   onClear: clearCanvas,
