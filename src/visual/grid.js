@@ -11,6 +11,25 @@ import { gridGeometry, PITCH_NAMES } from "./synesthesia.js";
 const LINE = "rgba(58, 52, 44, 0.14)";
 const LABEL = "rgba(58, 52, 44, 0.5)";
 
+// Octave numbers are shown as Roman numerals (I, II, III…). Octaves are small
+// positive integers, so a simple lookup-by-subtraction conversion is plenty.
+const ROMAN = [
+  [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+  [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+  [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+];
+function toRoman(n) {
+  if (n <= 0) return String(n); // guard: octave 0 or negatives stay numeric
+  let out = "";
+  for (const [v, s] of ROMAN) {
+    while (n >= v) {
+      out += s;
+      n -= v;
+    }
+  }
+  return out;
+}
+
 export function drawGrid(ctx, width, height) {
   const g = gridGeometry(width, height);
   const right = g.mx + g.cols * g.cw;
@@ -49,12 +68,12 @@ export function drawGrid(ctx, width, height) {
     ctx.fillText(PITCH_NAMES[c], g.mx + (c + 0.5) * g.cw, g.myTop + fs);
   }
 
-  // Octave labels down the left edge, just inside the grid. Labelled "oct N"
-  // so it's clear this axis is the octave, not a note.
+  // Octave labels down the left edge, just inside the grid. Shown as Roman
+  // numerals (I, II, III…) so the octave axis reads distinctly from the notes.
   ctx.textAlign = "left";
   for (let r = 0; r < g.rows; r++) {
     const oct = g.octMax - r;
-    ctx.fillText("oct " + oct, g.mx + 4, g.myTop + (r + 0.5) * g.ch);
+    ctx.fillText(toRoman(oct), g.mx + 4, g.myTop + (r + 0.5) * g.ch);
   }
 
   ctx.restore();
