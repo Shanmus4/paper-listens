@@ -197,7 +197,9 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // the offline file analysis uses, so mic and upload behave identically. The
 // tracker reads pitch every frame and reports a note the instant a clear pitch
 // stabilizes — it never averages the noisy attack and never invents a chord.
-const micTracker = createNoteTracker();
+// Lower silence floor than the file path: a mic picks up low notes faintly, so
+// a higher floor would treat them as silence before pitch is even checked.
+const micTracker = createNoteTracker({ silenceRms: 0.0015 });
 
 function onAudioFrame(f) {
   levelMeter.push(f.rms);

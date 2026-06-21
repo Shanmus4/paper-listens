@@ -30,7 +30,10 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
   // McLeod pitch detector: gives a fundamental frequency + a 0..1 clarity that
   // is high for clear single pitches and low for noise/percussion.
   const pitchDetector = PitchDetector.forFloat32Array(PITCH_SIZE);
-  pitchDetector.minVolumeDecibels = -45; // ignore near-silence
+  // Low notes arrive at a mic much quieter than mids; a -45dB floor silently
+  // dropped octaves 1-2. Lower floor lets them through; the tracker's clarity
+  // gate still rejects genuine noise, so this doesn't invent notes in silence.
+  pitchDetector.minVolumeDecibels = -65;
 
   // Pitch reads RAW time-domain samples from an AnalyserNode tap — exactly how a
   // hardware/software tuner does it. We must NOT reuse Meyda's buffer: Meyda
