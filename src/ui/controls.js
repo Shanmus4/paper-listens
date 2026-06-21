@@ -22,6 +22,7 @@ export function wireControls({
   onRecordToggle,
   onTogglePlay,
   onGrid,
+  onLiveView,
   onSeek,
   onSeekCommit,
 }) {
@@ -59,6 +60,7 @@ export function wireControls({
   const fileInput = document.getElementById("fileInput");
 
   const gridToggle = document.getElementById("gridToggle");
+  const liveViewToggle = document.getElementById("liveViewToggle");
 
   const clearBtn = document.getElementById("clearBtn");
   const saveBtn = document.getElementById("saveBtn");
@@ -155,6 +157,12 @@ export function wireControls({
 
   // --- Grid overlay toggle ---
   gridToggle.addEventListener("change", () => onGrid?.(gridToggle.checked));
+
+  // --- Live readout toggle ---
+  if (liveViewToggle) {
+    liveViewToggle.addEventListener("change", () => onLiveView?.(liveViewToggle.checked));
+    onLiveView?.(liveViewToggle.checked); // honor its initial state on load
+  }
 
   // --- New Sheet ---
   clearBtn.addEventListener("click", () => onClear?.());

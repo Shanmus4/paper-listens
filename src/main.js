@@ -9,7 +9,7 @@ import { createAnalyzer } from "./audio/features.js";
 import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { createModeTracker } from "./audio/mode.js";
-import { mapPitched, mapPercussive, strokeSpec, loudnessOf, PITCH_NAMES } from "./visual/synesthesia.js";
+import { mapPitched, mapPercussive, strokeSpec, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
 import { makeVoicedGate } from "./audio/tracker.js";
 import { extractChord } from "./audio/chord.js";
@@ -28,19 +28,45 @@ const recorder = createRecorder(paperEl);
 
 const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 
-// Live readout (local dev only): updates EVERY frame with the raw pitch, clarity
-// and rms the analyzer sees, plus the last note painted. This makes it obvious
-// when the input sits below a gate (e.g. clarity under the voiced threshold), so
-// the thresholds can be dialed to your mic instead of guessed.
+// Live readout: a small panel showing what the analyzer hears each frame — the
+// raw pitch, clarity, loudness, brightness and noisiness, plus what was last
+// painted and whether the engine read a chord or a single note. It makes the
+// gates and the chord/note decision visible so you can see exactly why the app
+// painted what it did. Toggled from Controls ("Show live readout"); off by
+// default (the toggle is the source of truth and sets this on load).
 let hudEl = null;
+let hudVisible = false;
 let lastPaintedLabel = "-";
+let lastDecision = "-"; // "chord A C E" or "single E2" — set wherever we paint
+
+// Top pitch classes in the chroma (the notes the chord test actually sees).
+function topChroma(chroma, n = 4) {
+  if (!chroma || !chroma.length) return "--";
+  let max = 0;
+  for (const v of chroma) if (v > max) max = v;
+  if (max <= 0) return "--";
+  return chroma
+    .map((v, pc) => ({ pc, v: v / max }))
+    .filter((c) => c.v >= 0.5)
+    .sort((a, b) => b.v - a.v)
+    .slice(0, n)
+    .map((c) => PITCH_NAMES[c.pc])
+    .join(" ");
+}
+
+function setHudVisible(on) {
+  hudVisible = on;
+  if (hudEl) hudEl.style.display = on ? "block" : "none";
+}
+
 function updateHud(f) {
-  if (!DEBUG) return;
+  if (!hudVisible) return;
   if (!hudEl) {
     hudEl = document.createElement("div");
     hudEl.style.cssText =
-      "position:fixed;left:12px;bottom:12px;z-index:9;font:13px ui-monospace,monospace;" +
-      "background:rgba(0,0,0,.72);color:#fff;padding:8px 11px;border-radius:8px;white-space:pre;pointer-events:none";
+      "position:fixed;left:12px;bottom:12px;z-index:9;font:12px ui-monospace,monospace;" +
+      "background:rgba(0,0,0,.72);color:#fff;padding:9px 12px;border-radius:8px;" +
+      "white-space:pre;pointer-events:none;line-height:1.5";
     document.body.appendChild(hudEl);
   }
   const hz = f.pitchHz || 0;
@@ -51,9 +77,12 @@ function updateHud(f) {
     note = `${PITCH_NAMES[n.pc]}${n.octave}`;
   }
   hudEl.textContent =
-    `rms ${(f.rms || 0).toFixed(4)}    clarity ${(f.clarity || 0).toFixed(2)}\n` +
-    `pitch ${Math.round(hz)}Hz  (${note})\n` +
-    `last painted: ${lastPaintedLabel}`;
+    `loudness ${(f.rms || 0).toFixed(4)}   clarity ${(f.clarity || 0).toFixed(2)}\n` +
+    `pitch    ${String(Math.round(hz)).padStart(4)}Hz (${note})\n` +
+    `bright   ${Math.round(f.centroidHz || 0)}Hz   noisy ${(f.flatness || 0).toFixed(2)}\n` +
+    `chroma   ${topChroma(f.chroma)}\n` +
+    `read as  ${lastDecision}\n` +
+    `painted  ${lastPaintedLabel}`;
 }
 
 // Keep the paint surface and the grid overlay sized to the window.
@@ -162,9 +191,10 @@ function paintEvent(ev, nowMs, instant) {
     if (!instant) {
       const midi = Math.round(ev.midi);
       lastPaintedLabel = `${PITCH_NAMES[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
+      lastDecision = `single ${lastPaintedLabel}`;
       updateHud(ev.frame);
     }
-    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.loud);
+    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.hue, !!ev.dir);
     if (ev.dir) {
       spec.dir = ev.dir;
       spec.speed = 0.4;
@@ -177,6 +207,7 @@ function paintEvent(ev, nowMs, instant) {
     if (!instant) {
       const ns = ev.cls.notes || [];
       lastPaintedLabel = ns.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join(" ");
+      lastDecision = `chord ${lastPaintedLabel}`;
       updateHud(ev.frame);
     }
     for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, rng)) {
@@ -223,7 +254,7 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // clarity 0.46) are rejected. Confirm-frames still require a stable pitch.
 const micVoiced = makeVoicedGate({ silenceRms: 0.0012, clarityLo: 0.35, clarityHi: 0.8 });
 let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
-let liveLoud = 0; // attack force (0..1) held for the current note, drives its color
+let liveHue = 0; // random color (0..360) held for the current note
 
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 
@@ -267,12 +298,12 @@ function paintLive(f, now, onset) {
   let speed = 0.12;
   if (liveMidi == null) {
     liveMidi = m; // first frame of a new note
-    liveLoud = loudnessOf(f.rms); // its attack force sets the color
+    liveHue = Math.random() * 360; // a fresh random color for the new note
   } else {
     const dm = m - liveMidi;
     if (Math.abs(dm) > 7) {
       liveMidi = m; // a leap to a new note, not a slide
-      liveLoud = loudnessOf(f.rms);
+      liveHue = Math.random() * 360;
     } else {
       liveMidi += dm * 0.5; // glide smoothly (slide / bend / vibrato / sustain)
       if (Math.abs(dm) > 0.04) {
@@ -281,14 +312,15 @@ function paintLive(f, now, onset) {
       }
     }
   }
-  if (onset) liveLoud = loudnessOf(f.rms); // a fresh pluck recolors by its force
-  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveLoud);
+  if (onset) liveHue = Math.random() * 360; // a fresh pluck recolors
+  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveHue, dir != null);
   if (dir) {
     spec.dir = dir;
     spec.speed = speed;
   }
   const n = freqToNote(f.pitchHz);
   lastPaintedLabel = `${PITCH_NAMES[n.pc]}${n.octave}`;
+  lastDecision = `single ${lastPaintedLabel}`;
   renderer.addBlot(spec, now);
   fadeHeadline();
 }
@@ -297,6 +329,7 @@ function paintLive(f, now, onset) {
 function paintNotes(notes, frame, now) {
   const cls = { type: "pitched", notes, centroidHz: frame.centroidHz };
   lastPaintedLabel = notes.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join(" ");
+  lastDecision = `chord ${lastPaintedLabel}`;
   if (DEBUG) console.log(`[paint] ${lastPaintedLabel}`, Math.round(frame.pitchHz) + "Hz");
   const dims = renderer.dims();
   for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
@@ -460,6 +493,7 @@ ui = wireControls({
   onGrid: (on) => {
     gridVisible = on;
   },
+  onLiveView: (on) => setHudVisible(on),
   // Dragging the seek bar: just record the target. The render loop repaints to
   // it once per frame, so rapid drag events don't pile up expensive rebuilds.
   // Audio waits for release so scrubbing doesn't machine-gun it with restarts.

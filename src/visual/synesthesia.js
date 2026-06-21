@@ -80,16 +80,16 @@ export function loudnessOf(rms) {
   return clamp((e - 0.12) / 0.6, 0, 1);
 }
 
-// Color from HOW HARD the note is played, not from its pitch or its position on
-// the grid. Soft = cool blue, medium = green, hard = hot red/orange. So the same
-// note can be any color depending on attack, and colors never repeat going up/
-// down (octave) or left/right (pitch class). Mode (vibrancy) nudges vividness.
-export function loudColor(loud, vibrancy = 1) {
-  const l = clamp(loud, 0, 1);
-  const hue = 222 - l * 212; // ~222 blue (soft) -> green -> ~10 red (hard)
-  const sat = clamp((76 + l * 18) * vibrancy, 58, 96);
-  const light = clamp(52 - l * 12 + (vibrancy - 1) * 6, 34, 64);
-  return { h: hue, s: sat, l: light };
+// Color is RANDOM, not tied to pitch, octave, position, or loudness — the user
+// asked for this directly. Each new note picks a hue and keeps it for its whole
+// sustain (the caller holds `hue` across the note), so a note doesn't shimmer as
+// it rings, but every fresh note is a fresh color. `hue` is 0..360; pass null
+// for a one-off random pick. Mode (vibrancy) only nudges how vivid it is.
+export function randomHsl(hue, vibrancy = 1) {
+  const h = hue == null ? Math.random() * 360 : ((hue % 360) + 360) % 360;
+  const sat = clamp(80 * vibrancy, 60, 96);
+  const light = clamp(50 + (vibrancy - 1) * 6, 40, 60);
+  return { h, s: sat, l: light };
 }
 
 function intensity(rms) {
@@ -112,7 +112,7 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
 
   return classified.notes.map(({ pc, octave, energy }) => {
     const cell = gridCell(pc, octave, width, height);
-    const color = loudColor(loudnessOf(frame.rms), vibrancy);
+    const color = randomHsl(rng() * 360, vibrancy); // each chord tone its own color
     // A struck note (strum/chord tone) is a single moderate puff. Sustain growth
     // comes from the per-frame strokeSpec path, so this stays modest to avoid
     // flooding the sheet.
@@ -139,15 +139,17 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
 // many puffs at one spot so the bloom GROWS, a quick note leaves a single small
 // puff, and a slide lays a moving, color-shifting trail. Keep alpha/radius low
 // because these accumulate frame after frame.
-// `loud` is the held "attack force" (0..1) that colors the whole note, so a
-// sustained note keeps the color of its pluck instead of drifting as it decays.
-// Falls back to this frame's loudness when not supplied.
-export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, loud = null) {
+// `hue` (0..360) is the note's random color, held by the caller for the whole
+// sustain so the note keeps one color instead of shimmering as it decays.
+// `slide` thickens the stroke: a bend/slide lays a noticeably fatter trail than
+// a held note sitting in place, so gestures read clearly as moving ink.
+export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = null, slide = false) {
   const { width, height } = dims;
   const minDim = Math.min(width, height);
   const { e } = intensity(frame.rms);
   const p = pitchToPoint(midiFloat, width, height);
-  const color = loudColor(loud != null ? loud : loudnessOf(frame.rms), vibrancy);
+  const color = randomHsl(hue, vibrancy);
+  const fat = slide ? 2.1 : 1; // slides/bends paint thicker than a still note
   return {
     x: p.x,
     y: p.y,
@@ -155,8 +157,8 @@ export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, loud = null) {
     h: color.h,
     s: color.s,
     l: color.l,
-    radius: minDim * (0.032 + e * 0.04),
-    alpha: 0.05 + e * 0.1,
+    radius: minDim * (0.032 + e * 0.04) * fat,
+    alpha: (0.05 + e * 0.1) * (slide ? 1.3 : 1),
     speed: 0.15,
     edge: 0.45,
     grain: clamp(frame.flatness || 0, 0, 1),

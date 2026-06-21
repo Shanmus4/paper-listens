@@ -20,11 +20,13 @@ const VEL_MAG = 75; // melodic-direction impulse speed (gentler = blooms stay lo
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
 
-// Warm ink tones for drums, as HSL (mirrors the previous palette).
+// Percussion paints in neutral GREY (no hue), so drums read as a separate,
+// uncolored layer under the colored notes. Darker for the deep kick, lighter
+// for the crisp hi-hat.
 const DRUM_INK = {
-  kick: { h: 28, s: 28, l: 20 },
-  snare: { h: 30, s: 20, l: 30 },
-  hihat: { h: 32, s: 14, l: 42 },
+  kick: { h: 0, s: 0, l: 22 },
+  snare: { h: 0, s: 0, l: 38 },
+  hihat: { h: 0, s: 0, l: 55 },
 };
 
 function hslToRgb(h, s, l) {

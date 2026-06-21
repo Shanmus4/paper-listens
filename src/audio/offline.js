@@ -14,7 +14,6 @@ import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
 import { createNoteTracker, makeVoicedGate } from "./tracker.js";
 import { extractChord } from "./chord.js";
-import { loudnessOf } from "../visual/synesthesia.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
 const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
@@ -44,11 +43,15 @@ function chordEvent(tSec, notes, frame, vibrancy) {
 }
 // A continuous stroke: one small puff at a (fractional) MIDI pitch, emitted
 // every voiced frame. Held notes stack puffs and grow; slides lay a trail.
-// `loud` is the note's held attack force (0..1), which colors it.
-function strokeEvent(tSec, midi, dir, loud, frame, vibrancy) {
-  return { t: tSec, type: "stroke", midi, dir, loud, frame, vibrancy, seed: seedFor(tSec) };
+// `hue` (0..360) is the note's held random color (deterministic per note start).
+function strokeEvent(tSec, midi, dir, hue, frame, vibrancy) {
+  return { t: tSec, type: "stroke", midi, dir, hue, frame, vibrancy, seed: seedFor(tSec) };
 }
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
+// Deterministic random-ish hue from a note's start time, spaced by the golden
+// angle so consecutive notes get well-separated colors. Same time -> same hue,
+// so seeking rebuilds the identical painting.
+const hueAt = (tSec) => (tSec * 1000 * 0.137508 * 360) % 360;
 function percEvent(tSec, cls, frame, vibrancy) {
   return { t: tSec, type: "percussive", cls, frame, vibrancy, seed: seedFor(tSec) };
 }
@@ -66,7 +69,7 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   const tracker = createNoteTracker(); // tuner-style tracking (kept for percussion gating)
   const voiced = makeVoicedGate(); // per-frame "clear pitch?" for continuous strokes
   let strokeMidi = null; // smoothed pitch across frames (same glide logic as the mic)
-  let strokeLoud = 0; // held attack force of the current note (colors it)
+  let strokeHue = 0; // held random color of the current note (set at note start)
   const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
   const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
@@ -139,14 +142,14 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
       let dir = null;
       if (strokeMidi == null || Math.abs(m - strokeMidi) > 7) {
         strokeMidi = m; // new note / leap
-        strokeLoud = loudnessOf(frame.rms); // attack force colors it
+        strokeHue = hueAt(tSec); // a fresh random color for the new note
       } else {
         const dm = m - strokeMidi;
         strokeMidi += dm * 0.5; // glide
         if (Math.abs(dm) > 0.04) dir = [0, -Math.sign(dm)]; // rising up, falling down
       }
-      if (on) strokeLoud = loudnessOf(frame.rms); // a fresh pluck recolors
-      events.push(strokeEvent(tSec, strokeMidi, dir, strokeLoud, frame, mode.getVibrancy()));
+      if (on) strokeHue = hueAt(tSec); // a fresh pluck recolors
+      events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, frame, mode.getVibrancy()));
     } else {
       strokeMidi = null;
       if (r && r.type === "perc") {
