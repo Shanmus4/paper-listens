@@ -195,6 +195,7 @@ function paintEvent(ev, nowMs, instant) {
       updateHud(ev.frame);
     }
     const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.hue, !!ev.dir);
+    spec.restrike = !!ev.restrike;
     if (ev.dir) {
       spec.dir = ev.dir;
       spec.speed = 0.4;
@@ -296,14 +297,17 @@ function paintLive(f, now, onset) {
   const m = midiOf(f.pitchHz);
   let dir = null;
   let speed = 0.12;
+  let fresh = false; // true only on the first frame of a new note / a re-pluck
   if (liveMidi == null) {
     liveMidi = m; // first frame of a new note
     liveHue = Math.random() * 360; // a fresh random color for the new note
+    fresh = true;
   } else {
     const dm = m - liveMidi;
     if (Math.abs(dm) > 7) {
       liveMidi = m; // a leap to a new note, not a slide
       liveHue = Math.random() * 360;
+      fresh = true;
     } else {
       liveMidi += dm * 0.5; // glide smoothly (slide / bend / vibrato / sustain)
       if (Math.abs(dm) > 0.04) {
@@ -312,8 +316,12 @@ function paintLive(f, now, onset) {
       }
     }
   }
-  if (onset) liveHue = Math.random() * 360; // a fresh pluck recolors
+  if (onset) {
+    liveHue = Math.random() * 360; // a fresh pluck recolors
+    fresh = true;
+  }
   const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveHue, dir != null);
+  spec.restrike = fresh; // a new note/pluck fades any prior ink at its spot; sustain accumulates
   if (dir) {
     spec.dir = dir;
     spec.speed = speed;

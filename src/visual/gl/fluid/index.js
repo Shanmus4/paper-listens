@@ -19,6 +19,8 @@ const DYE_STRENGTH = 1.5; // spec alpha -> dye absorbance (per-frame strokes acc
 const VEL_MAG = 75; // melodic-direction impulse speed (gentler = blooms stay local)
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
+const FADE_R = 1.25; // restrike-fade footprint scale (a touch wider than the dye)
+const FADE_DECAY = 0.55; // a struck note keeps ~55% of any ink already at its spot
 
 // Percussion paints in neutral GREY (no hue), so drums read as a separate,
 // uncolored layer under the colored notes. Darker for the deep kick, lighter
@@ -89,6 +91,12 @@ export function createFluidInk(canvas) {
     const absorb = [density * (1 - rgb[0]), density * (1 - rgb[1]), density * (1 - rgb[2])];
     const point = toUv(spec.x, spec.y);
     const uvR = (spec.radius || 30) / size.cssH; // height-normalized (splat scales x by aspect)
+    // A struck note (a fresh pluck/strum, not a sustain frame) first fades any
+    // ink already at this spot, so replaying the same note dims its old mark and
+    // the spot never blacks out. Held-note sustain puffs skip this and accumulate.
+    if (spec.restrike) {
+      solver.fade(point, Math.max(1e-4, (uvR * FADE_R) ** 2), FADE_DECAY);
+    }
     solver.splat("dye", point, absorb, Math.max(1e-4, (uvR * DYE_R) ** 2));
 
     const dir = spec.dir || [0, 0];

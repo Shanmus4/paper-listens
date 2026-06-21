@@ -172,6 +172,28 @@ void main(){
 }
 `;
 
+// Restrike fade: multiply the dye DOWN inside a soft gaussian footprint (1.0 at
+// the edges, u_decay at the center). Run just before a struck note deposits, so
+// replaying the same note fades its previous deposit and a single spot can never
+// build up to flat black — yet notes at fresh positions keep their full residue.
+export const FADE_FS = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D u_target;
+uniform vec2 u_point;     // fade center, 0..1
+uniform float u_radius;   // gaussian falloff (uv^2 units)
+uniform float u_aspect;   // width/height, to keep the footprint round
+uniform float u_decay;    // center multiplier (e.g. 0.5 keeps half)
+out vec4 frag;
+void main(){
+  vec2 p = vUv - u_point;
+  p.x *= u_aspect;
+  float g = exp(-dot(p, p) / u_radius);
+  float m = mix(1.0, u_decay, g);
+  frag = vec4(texture(u_target, vUv).xyz * m, 1.0);
+}
+`;
+
 // Multiply a field by a constant (used to bleed off pressure between steps).
 export const CLEAR_FS = /* glsl */ `#version 300 es
 precision highp float;

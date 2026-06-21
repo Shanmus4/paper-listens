@@ -44,8 +44,10 @@ function chordEvent(tSec, notes, frame, vibrancy) {
 // A continuous stroke: one small puff at a (fractional) MIDI pitch, emitted
 // every voiced frame. Held notes stack puffs and grow; slides lay a trail.
 // `hue` (0..360) is the note's held random color (deterministic per note start).
-function strokeEvent(tSec, midi, dir, hue, frame, vibrancy) {
-  return { t: tSec, type: "stroke", midi, dir, hue, frame, vibrancy, seed: seedFor(tSec) };
+// `restrike` is true only on a note's first frame / a re-pluck, so the renderer
+// fades any prior ink at that spot (history) while sustain frames accumulate.
+function strokeEvent(tSec, midi, dir, hue, restrike, frame, vibrancy) {
+  return { t: tSec, type: "stroke", midi, dir, hue, restrike, frame, vibrancy, seed: seedFor(tSec) };
 }
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 // Deterministic random-ish hue from a note's start time, spaced by the golden
@@ -140,16 +142,21 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     } else if (voiced(frame)) {
       const m = midiOf(frame.pitchHz);
       let dir = null;
+      let fresh = false; // first frame of a new note / a re-pluck
       if (strokeMidi == null || Math.abs(m - strokeMidi) > 7) {
         strokeMidi = m; // new note / leap
         strokeHue = hueAt(tSec); // a fresh random color for the new note
+        fresh = true;
       } else {
         const dm = m - strokeMidi;
         strokeMidi += dm * 0.5; // glide
         if (Math.abs(dm) > 0.04) dir = [0, -Math.sign(dm)]; // rising up, falling down
       }
-      if (on) strokeHue = hueAt(tSec); // a fresh pluck recolors
-      events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, frame, mode.getVibrancy()));
+      if (on) {
+        strokeHue = hueAt(tSec); // a fresh pluck recolors
+        fresh = true;
+      }
+      events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, fresh, frame, mode.getVibrancy()));
     } else {
       strokeMidi = null;
       if (r && r.type === "perc") {

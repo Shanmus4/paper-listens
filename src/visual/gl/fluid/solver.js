@@ -17,6 +17,7 @@ import {
   PRESSURE_FS,
   GRADIENT_FS,
   SPLAT_FS,
+  FADE_FS,
   CLEAR_FS,
   DISPLAY_FS,
 } from "./shaders.js";
@@ -26,7 +27,7 @@ const DYE_RES = 1024; // longest side of the dye grid (high, so blooms aren't bl
 const PRESSURE_ITERS = 22; // Jacobi iterations per step (incompressibility)
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
 const VEL_DISSIPATION = 0.32; // how fast motion calms (higher = blooms settle, stay distinct)
-const DYE_DISSIPATION = 0.11; // pigment fades slowly so the canvas never saturates to mud
+const DYE_DISSIPATION = 0.07; // pigment fades very slowly so notes linger as a history/residue
 const CURL_STRENGTH = 14.0; // vorticity confinement (wispy tendrils)
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
@@ -49,6 +50,7 @@ export function createSolver(gl, canvas) {
     pressure: createProgram(gl, BASE_VS, PRESSURE_FS),
     gradient: createProgram(gl, BASE_VS, GRADIENT_FS),
     splat: createProgram(gl, BASE_VS, SPLAT_FS),
+    fade: createProgram(gl, BASE_VS, FADE_FS),
     clear: createProgram(gl, BASE_VS, CLEAR_FS),
     display: createProgram(gl, BASE_VS, DISPLAY_FS),
   };
@@ -205,6 +207,20 @@ export function createSolver(gl, canvas) {
     swap(d);
   }
 
+  // Fade the dye field down inside a gaussian footprint (restrike decay). Used
+  // before a struck note deposits, so replaying the same note dims its previous
+  // mark and one spot can't build to black. point = [u,v], decay = center factor.
+  function fade(point, radius, decay) {
+    pass(P.fade, dye.write, () => {
+      tex(0, dye.read.tex, P.fade, "u_target");
+      gl.uniform2f(P.fade.loc("u_point"), point[0], point[1]);
+      gl.uniform1f(P.fade.loc("u_radius"), radius);
+      gl.uniform1f(P.fade.loc("u_aspect"), dye.w / dye.h);
+      gl.uniform1f(P.fade.loc("u_decay"), decay);
+    });
+    swap(dye);
+  }
+
   // Tonemap the dye to the screen over the paper color.
   function display(paper, devW, devH) {
     gl.useProgram(P.display.program);
@@ -228,6 +244,7 @@ export function createSolver(gl, canvas) {
     init,
     step,
     splat,
+    fade,
     display,
     resize,
     clear: clearAll,

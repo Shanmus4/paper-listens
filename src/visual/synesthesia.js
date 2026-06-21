@@ -129,6 +129,7 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
       speed: 0.3 + e * 0.7,
       edge: 0.35 + bright * 0.45,
       grain,
+      restrike: true, // a struck tone fades any prior ink at its spot first
       seed: rng(),
     };
   });
