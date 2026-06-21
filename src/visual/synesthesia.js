@@ -1,9 +1,13 @@
 // synesthesia.js — the deterministic bridge from sound to paint.
 //
-// Pure functions only. A note maps to a fixed cell on an invisible grid:
-// columns are the 12 pitch classes (C..B, left to right), rows are octaves
-// (high at the top, low at the bottom). So every note has one home on the
-// page, and the same note always lands there. Color is fixed per pitch class.
+// Pure functions only. A note maps to a fixed cell on an invisible grid.
+// There are 12 pitch classes (C..B) but only 7 octaves, so the LONGER side of
+// the viewport always carries the notes and the shorter side carries octaves:
+//   • Landscape (width >= height): notes left-to-right, octaves top (high) to
+//     bottom (low). The original layout.
+//   • Portrait (width < height): notes top-to-bottom, octaves left (high) to
+//     right (low).
+// Every note still has one fixed home, and the same note always lands there.
 
 export const PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -21,25 +25,21 @@ function brightness(centroidHz) {
 }
 
 // The invisible grid's geometry, shared by note placement and the (optional)
-// visible overlay so they can never drift apart.
+// visible overlay so they can never drift apart. No margins: the note map fills
+// the viewport corner to corner. The overlay draws labels just inside the edges.
 export function gridGeometry(width, height) {
-  // No margins: the note map fills the viewport corner to corner. The overlay
-  // draws its labels just inside these edges.
-  const mx = 0;
-  const myTop = 0;
-  const myBot = 0;
-  const cols = 12;
-  const rows = OCT_MAX - OCT_MIN + 1;
+  const notesOnX = width >= height; // the longer side carries the 12 notes
+  const noteCount = 12;
+  const octCount = OCT_MAX - OCT_MIN + 1; // 7
   return {
-    mx,
-    myTop,
-    myBot,
-    cols,
-    rows,
-    cw: (width - 2 * mx) / cols,
-    ch: (height - myTop - myBot) / rows,
+    notesOnX,
+    noteCount,
+    octCount,
     octMin: OCT_MIN,
     octMax: OCT_MAX,
+    // Pixel size of one step along each axis.
+    noteSpan: (notesOnX ? width : height) / noteCount,
+    octSpan: (notesOnX ? height : width) / octCount,
   };
 }
 
@@ -47,12 +47,14 @@ export function gridGeometry(width, height) {
 export function gridCell(pc, octave, width, height) {
   const g = gridGeometry(width, height);
   const oct = clamp(octave, OCT_MIN, OCT_MAX);
-  const row = OCT_MAX - oct; // high octave -> top
+  const row = OCT_MAX - oct; // high octave first (top in landscape, left in portrait)
+  const noteCoord = (pc + 0.5) * g.noteSpan;
+  const octCoord = (row + 0.5) * g.octSpan;
   return {
-    x: g.mx + (pc + 0.5) * g.cw,
-    y: g.myTop + (row + 0.5) * g.ch,
-    cellW: g.cw,
-    cellH: g.ch,
+    x: g.notesOnX ? noteCoord : octCoord,
+    y: g.notesOnX ? octCoord : noteCoord,
+    cellW: g.noteSpan,
+    cellH: g.octSpan,
   };
 }
 

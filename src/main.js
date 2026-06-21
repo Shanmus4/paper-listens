@@ -59,10 +59,15 @@ function updateHud(f) {
 // Keep the paint surface and the grid overlay sized to the window.
 window.addEventListener("resize", () => renderer.resize());
 
+// Onset sensitivity is fixed at the value that tested best. There's no user
+// slider: note detection is gated by the tracker's clarity/range logic, not by
+// this — the onset detector only triggers re-pluck timing and drum splats, so a
+// single well-chosen value serves every input.
+const ONSET_SENSITIVITY = 0.5;
+
 // Audio state. onsetDetector/modeTracker are recreated when the source changes.
-let onsetDetector = createOnsetDetector({ sensitivity: 0.5 });
+let onsetDetector = createOnsetDetector({ sensitivity: ONSET_SENSITIVITY });
 let modeTracker = createModeTracker();
-let sensitivity = 0.5;
 let source = null;
 let analyzer = null;
 let firstPaint = false;
@@ -274,7 +279,7 @@ function teardownSource() {
   scrubbing = false;
   renderer.purge();
   resetTracker();
-  onsetDetector = createOnsetDetector({ sensitivity });
+  onsetDetector = createOnsetDetector({ sensitivity: ONSET_SENSITIVITY });
   modeTracker = createModeTracker();
 }
 
@@ -329,7 +334,7 @@ async function startFile(file) {
       p.stop();
       return;
     }
-    const result = analyzeBuffer(p.audioBuffer, { sensitivity });
+    const result = analyzeBuffer(p.audioBuffer, { sensitivity: ONSET_SENSITIVITY });
     if (token !== loadToken) {
       p.stop();
       return;
@@ -392,10 +397,6 @@ ui = wireControls({
   },
   onClear: clearCanvas,
   onSave: (name) => renderer.save(name),
-  onSensitivity: (value) => {
-    sensitivity = value;
-    onsetDetector.setSensitivity(value);
-  },
   onGrid: (on) => {
     gridVisible = on;
   },

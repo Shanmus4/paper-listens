@@ -1,10 +1,11 @@
 // grid.js — an optional, faint overlay that reveals the invisible note map.
 //
-// X axis = the 12 pitch classes (the actual note names C..B), left to right.
-// Y axis = the OCTAVE (how high or low), high at the top (7) down to low (1).
-// So a mark in column "C", row "oct 4" is the note C4. Every note has one fixed
-// home on the page. The map fills the whole screen; this overlay just labels
-// it. Drawn on the visible canvas each frame when enabled, never saved.
+// The 12 pitch classes (note names C..B) run along the viewport's LONGER side
+// and the 7 octaves (high -> low) along the shorter side. So in landscape notes
+// go left-to-right with octaves stacked top(high)->bottom(low); in portrait
+// notes go top-to-bottom with octaves left(high)->right(low). Either way every
+// note has one fixed home. The map fills the whole screen; this overlay just
+// labels it. Drawn on the visible canvas each frame when enabled, never saved.
 
 import { gridGeometry, PITCH_NAMES } from "./synesthesia.js";
 
@@ -30,11 +31,16 @@ function toRoman(n) {
   return out;
 }
 
+function line(ctx, x1, y1, x2, y2) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+}
+
 export function drawGrid(ctx, width, height) {
   const g = gridGeometry(width, height);
-  const right = g.mx + g.cols * g.cw;
-  const bottom = g.myTop + g.rows * g.ch;
-  const fs = Math.max(10, Math.round(width * 0.0095));
+  const fs = Math.max(10, Math.round(Math.min(width, height) * 0.0095));
 
   ctx.save();
   ctx.lineWidth = 1;
@@ -42,38 +48,26 @@ export function drawGrid(ctx, width, height) {
   ctx.font = `600 ${fs}px Inter, ui-sans-serif, sans-serif`;
   ctx.textBaseline = "middle";
 
-  // Vertical lines (pitch-class columns).
-  for (let c = 0; c <= g.cols; c++) {
-    const x = g.mx + c * g.cw;
-    ctx.beginPath();
-    ctx.moveTo(x, g.myTop);
-    ctx.lineTo(x, bottom);
-    ctx.stroke();
-  }
+  if (g.notesOnX) {
+    // Notes are columns (vertical lines); octaves are rows (horizontal lines).
+    for (let c = 0; c <= g.noteCount; c++) line(ctx, c * g.noteSpan, 0, c * g.noteSpan, height);
+    for (let r = 0; r <= g.octCount; r++) line(ctx, 0, r * g.octSpan, width, r * g.octSpan);
 
-  // Horizontal lines (octave rows).
-  for (let r = 0; r <= g.rows; r++) {
-    const y = g.myTop + r * g.ch;
-    ctx.beginPath();
-    ctx.moveTo(g.mx, y);
-    ctx.lineTo(right, y);
-    ctx.stroke();
-  }
+    ctx.fillStyle = LABEL;
+    ctx.textAlign = "center"; // note names along the top
+    for (let c = 0; c < g.noteCount; c++) ctx.fillText(PITCH_NAMES[c], (c + 0.5) * g.noteSpan, fs);
+    ctx.textAlign = "left"; // octave numerals down the left edge
+    for (let r = 0; r < g.octCount; r++) ctx.fillText(toRoman(g.octMax - r), 4, (r + 0.5) * g.octSpan);
+  } else {
+    // Notes are rows (horizontal lines); octaves are columns (vertical lines).
+    for (let r = 0; r <= g.noteCount; r++) line(ctx, 0, r * g.noteSpan, width, r * g.noteSpan);
+    for (let c = 0; c <= g.octCount; c++) line(ctx, c * g.octSpan, 0, c * g.octSpan, height);
 
-  ctx.fillStyle = LABEL;
-
-  // Pitch-class (note) labels along the top, just inside the grid.
-  ctx.textAlign = "center";
-  for (let c = 0; c < g.cols; c++) {
-    ctx.fillText(PITCH_NAMES[c], g.mx + (c + 0.5) * g.cw, g.myTop + fs);
-  }
-
-  // Octave labels down the left edge, just inside the grid. Shown as Roman
-  // numerals (I, II, III…) so the octave axis reads distinctly from the notes.
-  ctx.textAlign = "left";
-  for (let r = 0; r < g.rows; r++) {
-    const oct = g.octMax - r;
-    ctx.fillText(toRoman(oct), g.mx + 4, g.myTop + (r + 0.5) * g.ch);
+    ctx.fillStyle = LABEL;
+    ctx.textAlign = "left"; // note names down the left edge
+    for (let r = 0; r < g.noteCount; r++) ctx.fillText(PITCH_NAMES[r], 4, (r + 0.5) * g.noteSpan);
+    ctx.textAlign = "center"; // octave numerals along the top
+    for (let c = 0; c < g.octCount; c++) ctx.fillText(toRoman(g.octMax - c), (c + 0.5) * g.octSpan, fs);
   }
 
   ctx.restore();

@@ -1,5 +1,5 @@
 // controls.js — wires the DOM chrome: Controls panel, source switching
-// (microphone / upload drop box), sensitivity, New Sheet, and the Save modal.
+// (microphone / upload drop box), New Sheet, and the Save modal.
 // Audio/painting logic is injected via callbacks.
 
 // Soft, rounded transport icons in the UI's dark-brown ink tone. Rounded
@@ -19,7 +19,6 @@ export function wireControls({
   onUploadEnter,
   onClear,
   onSave,
-  onSensitivity,
   onRecordToggle,
   onTogglePlay,
   onGrid,
@@ -28,7 +27,6 @@ export function wireControls({
 }) {
   const controlsToggle = document.getElementById("controlsToggle");
   const controlsPanel = document.getElementById("controlsPanel");
-  const sensitivity = document.getElementById("sensitivity");
 
   const recordBtn = document.getElementById("recordBtn");
   const recordLabel = document.getElementById("recordLabel");
@@ -154,13 +152,6 @@ export function wireControls({
   ["dragover", "drop"].forEach((ev) =>
     window.addEventListener(ev, (e) => e.preventDefault())
   );
-
-  // --- Sensitivity ---
-  setFill(sensitivity);
-  sensitivity.addEventListener("input", () => {
-    setFill(sensitivity);
-    onSensitivity?.(Number(sensitivity.value) / 100);
-  });
 
   // --- Grid overlay toggle ---
   gridToggle.addEventListener("change", () => onGrid?.(gridToggle.checked));
