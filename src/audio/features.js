@@ -12,10 +12,13 @@ import { PitchDetector } from "https://esm.sh/pitchy@4";
 // 1024 samples ≈ 23ms per frame at 44.1kHz (~43 frames/sec). Good balance:
 // fine enough for responsive onsets, coarse enough for stable chroma.
 const BUFFER_SIZE = 1024;
-// Pitch needs a longer window than onsets: ~46ms gives a low guitar note (E2,
-// 82Hz) ~4 cycles to lock its true fundamental, while staying short enough not
-// to lag fast playing. We keep a rolling window and detect over all of it.
-const PITCH_SIZE = 2048;
+// Pitch reads a big tuner-grade window. A noisy mic signal of a LOW note needs
+// many cycles to lock: at 2048 samples a 65Hz (C2) note has only ~3 cycles, so
+// clarity drops below our gate and octaves 1-2 vanish. 8192 samples (~186ms)
+// gives C2 ~12 cycles and even C1 ~6 — rock-solid, like a hardware tuner. The
+// AnalyserNode still updates every Meyda frame (~23ms), so response stays live;
+// only the analysis history is longer. (Onsets/chroma still use 1024.)
+const PITCH_SIZE = 8192;
 
 const FEATURE_EXTRACTORS = [
   "rms",
