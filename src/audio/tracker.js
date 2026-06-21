@@ -13,8 +13,12 @@
 
 import { freqToNote } from "./notes.js";
 
-const PITCH_LO = 40; // Hz; below this the reading is sub-bass garbage
-const PITCH_HI = 2500; // Hz; above this is beyond our instruments
+// Musical range we accept, C1..B7. Below C1 (~33Hz) is the sub-bass garbage the
+// detector sometimes locks onto; above B7 (~3951Hz) is beyond our instruments.
+// Covering B7 also stops a too-low ceiling from passing the detector's
+// octave-down half-reading of a real 7th-octave note as a 6th-octave note.
+const PITCH_LO = 31; // just below C1 (32.70Hz)
+const PITCH_HI = 4050; // just above B7 (3951Hz)
 
 export function createNoteTracker(opts = {}) {
   const voiceClarity = opts.voiceClarity != null ? opts.voiceClarity : 0.8;
