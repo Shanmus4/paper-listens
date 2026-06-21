@@ -13,6 +13,7 @@ import { createOnsetDetector } from "./onset.js";
 import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
 import { createNoteTracker } from "./tracker.js";
+import { extractChord } from "./chord.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
 const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
@@ -37,6 +38,11 @@ const seedFor = (tSec) => (tSec * 9301 + 49297) % 1 || 0.5;
 
 function pitchedEvent(tSec, pc, octave, frame, vibrancy) {
   const cls = { type: "pitched", notes: [{ pc, octave, energy: 1 }], centroidHz: frame.centroidHz };
+  return { t: tSec, type: "pitched", cls, frame, vibrancy, seed: seedFor(tSec) };
+}
+// A chord onset: paint every detected tone (chroma-based, see chord.js).
+function chordEvent(tSec, notes, frame, vibrancy) {
+  const cls = { type: "pitched", notes, centroidHz: frame.centroidHz };
   return { t: tSec, type: "pitched", cls, frame, vibrancy, seed: seedFor(tSec) };
 }
 function percEvent(tSec, cls, frame, vibrancy) {
@@ -112,8 +118,14 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     // Same continuous tracking as the live mic: a clear stable pitch becomes one
     // note; a noisy pitchless attack may be percussion; garbage pitch paints
     // nothing (no invented chords).
+    // Same layering as the live mic: a chord onset paints all its tones; a
+    // single stable pitch paints one note; a noisy pitchless attack may be a
+    // drum (songs really do have drums, so we keep percussion for files).
+    const chord = on ? extractChord(frame) : null;
     const r = tracker.process(frame, on);
-    if (r && r.type === "note") {
+    if (chord) {
+      events.push(chordEvent(tSec, chord, frame, mode.getVibrancy()));
+    } else if (r && r.type === "note") {
       events.push(pitchedEvent(tSec, r.pc, r.octave, frame, mode.getVibrancy()));
     } else if (r && r.type === "perc") {
       const cls = classifyOnset(frame);

@@ -8,11 +8,11 @@ import { createMicSource, createFilePlayer } from "./audio/source.js";
 import { createAnalyzer } from "./audio/features.js";
 import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
-import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
 import { mapPitched, mapPercussive, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
 import { createNoteTracker } from "./audio/tracker.js";
+import { extractChord } from "./audio/chord.js";
 import { seededRng } from "./visual/rng.js";
 import { createRecorder } from "./ui/record.js";
 
@@ -207,7 +207,7 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // ~0.5 (measured F#1 = 0.53), so the low end is lenient (0.45); high notes must
 // be crisp (0.88) so high-frequency noise and harmonic mis-locks (e.g. F#6 at
 // clarity 0.46) are rejected. Confirm-frames still require a stable pitch.
-const micTracker = createNoteTracker({ silenceRms: 0.0015, clarityLo: 0.45, clarityHi: 0.88 });
+const micTracker = createNoteTracker({ silenceRms: 0.0012, clarityLo: 0.35, clarityHi: 0.8 });
 
 function onAudioFrame(f) {
   levelMeter.push(f.rms);
@@ -217,27 +217,31 @@ function onAudioFrame(f) {
 
   const now = performance.now();
   const onset = onsetDetector.process(f.flux, f.rms, now);
-  const r = micTracker.process(f, onset);
-  if (!r) return;
 
-  if (r.type === "note") {
-    paintNote(r.pc, r.octave, f, now);
-  } else if (r.type === "perc") {
-    // A noisy attack with no clear pitch -> percussion splatter (drums only).
-    const cls = classifyOnset(f);
-    if (cls.type === "percussive") {
-      lastPaintedLabel = `drum:${cls.drum}`;
-      renderer.addSplat(mapPercussive(cls, f, renderer.dims()), now);
-      fadeHeadline();
+  // Chord layer first: a strummed/struck attack with several pitch classes
+  // paints ALL of them (chroma-based, see audio/chord.js). A single note shows
+  // only one strong pitch class, so it returns null here and falls through to
+  // the accurate monophonic tracker below. Live guitar has no drums, so an
+  // unclear attack just paints nothing instead of a spurious percussion splat.
+  if (onset) {
+    const chord = extractChord(f);
+    if (chord) {
+      paintNotes(chord, f, now);
+      return;
     }
+  }
+
+  const r = micTracker.process(f, onset);
+  if (r && r.type === "note") {
+    paintNotes([{ pc: r.pc, octave: r.octave, energy: 1 }], f, now);
   }
 }
 
-// Paint one confirmed monophonic note.
-function paintNote(pc, octave, frame, now) {
-  const cls = { type: "pitched", notes: [{ pc, octave, energy: 1 }], centroidHz: frame.centroidHz };
-  lastPaintedLabel = `${PITCH_NAMES[pc]}${octave}`;
-  if (DEBUG) console.log(`[note] ${lastPaintedLabel}`, Math.round(frame.pitchHz) + "Hz");
+// Paint one or more notes (a single tracked note, or every tone of a chord).
+function paintNotes(notes, frame, now) {
+  const cls = { type: "pitched", notes, centroidHz: frame.centroidHz };
+  lastPaintedLabel = notes.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join(" ");
+  if (DEBUG) console.log(`[paint] ${lastPaintedLabel}`, Math.round(frame.pitchHz) + "Hz");
   const dims = renderer.dims();
   for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
     attachMotion(blot);

@@ -15,7 +15,7 @@ import { createSolver } from "./solver.js";
 
 const SIM_DT = 1 / 60; // fixed simulation timestep (s)
 const MAX_STEPS = 240; // cap per stepTo call so a big seek can't freeze the tab
-const DYE_STRENGTH = 1.6; // spec alpha -> dye absorbance
+const DYE_STRENGTH = 2.1; // spec alpha -> dye absorbance (higher = fuller, denser ink)
 const VEL_MAG = 75; // melodic-direction impulse speed (gentler = blooms stay local)
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)

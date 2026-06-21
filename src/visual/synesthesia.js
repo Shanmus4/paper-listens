@@ -72,14 +72,17 @@ export function noteColor(pc, octave, vibrancy, centroidHz) {
   // (timbre only tints), otherwise a bright-centroid song collapses to one color.
   const score = clamp(0.85 * register + 0.15 * timbre, 0, 1);
   const hue = 10 + score * 230; // ~10 (deep warm red/orange) -> ~240 (cool blue)
-  const sat = clamp((90 - score * 20) * vibrancy, 40, 96);
-  const light = clamp(32 + score * 28 + (vibrancy - 1) * 6, 24, 74);
+  // Richer floor so the paint reads as vivid watercolor, not washed-out tint.
+  const sat = clamp((96 - score * 16) * vibrancy, 58, 98);
+  const light = clamp(34 + score * 26 + (vibrancy - 1) * 6, 26, 74);
   return { h: hue, s: sat, l: light };
 }
 
 function intensity(rms) {
-  const e = clamp(Math.sqrt(rms) * 2.2, 0.08, 1);
-  return { e, alpha: 0.24 + e * 0.42 };
+  // Higher gain + floor so even a softly played guitar fills the sheet instead
+  // of leaving it mostly empty. Quiet notes still bloom; loud ones bloom more.
+  const e = clamp(Math.sqrt(rms) * 3.0, 0.18, 1);
+  return { e, alpha: 0.32 + e * 0.42 };
 }
 
 // Build ink-blot specs for a pitched onset (one per detected note).
@@ -96,9 +99,10 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
   return classified.notes.map(({ pc, octave, energy }) => {
     const cell = gridCell(pc, octave, width, height);
     const color = noteColor(pc, octave, vibrancy, frame.centroidHz);
-    // Free billows that spill past the note's home cell, but kept moderate so
-    // neighbouring colors stay distinct instead of blanketing into one mud.
-    const radius = minDim * (0.03 + e * 0.06) * (0.7 + 0.3 * energy);
+    // Generous billows that spill well past the note's home cell so a few notes
+    // already fill space and chords overlap and mix, instead of leaving the
+    // sheet sparse. Louder/stronger tones bloom larger.
+    const radius = minDim * (0.06 + e * 0.1) * (0.7 + 0.3 * energy);
     return {
       x: cell.x,
       y: cell.y,
