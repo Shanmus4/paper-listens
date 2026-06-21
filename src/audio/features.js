@@ -23,7 +23,6 @@ const FEATURE_EXTRACTORS = [
   "spectralFlatness",
   "chroma",
   "amplitudeSpectrum",
-  "buffer", // time-domain signal, for pitch detection
 ];
 
 export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
@@ -32,7 +31,15 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
   // is high for clear single pitches and low for noise/percussion.
   const pitchDetector = PitchDetector.forFloat32Array(PITCH_SIZE);
   pitchDetector.minVolumeDecibels = -45; // ignore near-silence
-  const pitchRing = new Float32Array(PITCH_SIZE); // rolling window of recent audio
+
+  // Pitch reads RAW time-domain samples from an AnalyserNode tap — exactly how a
+  // hardware/software tuner does it. We must NOT reuse Meyda's buffer: Meyda
+  // windows (tapers) that signal for its spectral math, and stitching windowed
+  // chunks together corrupts the waveform and wrecks pitch detection.
+  const pitchNode = audioContext.createAnalyser();
+  pitchNode.fftSize = PITCH_SIZE;
+  sourceNode.connect(pitchNode);
+  const pitchBuf = new Float32Array(pitchNode.fftSize);
 
   const analyzer = Meyda.createMeydaAnalyzer({
     audioContext,
@@ -54,17 +61,11 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
       }
       prevSpectrum = spectrum;
 
-      // Fundamental pitch + clarity from the time-domain buffer.
-      let pitchHz = 0;
-      let clarity = 0;
-      if (features.buffer) {
-        // Slide the newest frame into the rolling window and detect over it all.
-        pitchRing.copyWithin(0, BUFFER_SIZE);
-        pitchRing.set(features.buffer, PITCH_SIZE - BUFFER_SIZE);
-        const [p, c] = pitchDetector.findPitch(pitchRing, audioContext.sampleRate);
-        pitchHz = p || 0;
-        clarity = c || 0;
-      }
+      // Fundamental pitch + clarity from the raw time-domain waveform.
+      pitchNode.getFloatTimeDomainData(pitchBuf);
+      const [p, c] = pitchDetector.findPitch(pitchBuf, audioContext.sampleRate);
+      const pitchHz = p || 0;
+      const clarity = c || 0;
 
       onFrame({
         rms: features.rms || 0,
