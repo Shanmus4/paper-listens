@@ -198,9 +198,12 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // tracker reads pitch every frame and reports a note the instant a clear pitch
 // stabilizes — it never averages the noisy attack and never invents a chord.
 // Mic is noisier and quieter than a decoded file, so it gets more forgiving
-// floors: a lower silence threshold (low notes arrive faint) and a slightly
-// lower clarity gate (a mic tone is never as clean as a file's).
-const micTracker = createNoteTracker({ silenceRms: 0.0015, voiceClarity: 0.72 });
+// floors. The clarity gate is the key one: a real low note through a mic reads
+// around clarity 0.5 (measured F#1 = 0.53), far under a clean file's 0.9+, so a
+// strict gate silently dropped octaves 1-2. The tracker's confirm-frames still
+// require a STABLE pitch, which is what actually rejects noise (random noise
+// never holds one pitch), so a low clarity gate here is safe.
+const micTracker = createNoteTracker({ silenceRms: 0.0015, voiceClarity: 0.45 });
 
 function onAudioFrame(f) {
   levelMeter.push(f.rms);
