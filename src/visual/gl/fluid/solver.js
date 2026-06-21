@@ -21,7 +21,8 @@ import {
   DISPLAY_FS,
 } from "./shaders.js";
 
-const SIM_RES = 320; // longest side of the simulation grid (px)
+const SIM_RES = 320; // longest side of the velocity/pressure grid (cheap physics)
+const DYE_RES = 1024; // longest side of the dye grid (high, so blooms aren't blocky)
 const PRESSURE_ITERS = 22; // Jacobi iterations per step (incompressibility)
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
 const VEL_DISSIPATION = 0.32; // how fast motion calms (higher = blooms settle, stay distinct)
@@ -64,15 +65,19 @@ export function createSolver(gl, canvas) {
 
   let simW = 0;
   let simH = 0;
-  let texel = [0, 0];
+  let dyeW = 0;
+  let dyeH = 0;
+  let texel = [0, 0]; // sim-grid texel; also the unit for advection displacement
   let velocity, dye, pressure, divergence, curl;
 
-  function allocFields(w, h) {
-    velocity = makeDouble(gl, w, h);
-    dye = makeDouble(gl, w, h);
-    pressure = makeDouble(gl, w, h);
-    divergence = createFBO(gl, w, h);
-    curl = createFBO(gl, w, h);
+  // The velocity/pressure physics run at the cheap sim grid; the dye (what you
+  // see) runs at a higher grid so blooms upscale smoothly instead of blocky.
+  function allocFields() {
+    velocity = makeDouble(gl, simW, simH);
+    pressure = makeDouble(gl, simW, simH);
+    divergence = createFBO(gl, simW, simH);
+    curl = createFBO(gl, simW, simH);
+    dye = makeDouble(gl, dyeW, dyeH);
   }
   function freeFields() {
     if (!velocity) return;
@@ -84,21 +89,21 @@ export function createSolver(gl, canvas) {
     deleteFBO(gl, curl);
   }
 
-  // Size the sim grid from the canvas aspect, longest side = SIM_RES.
+  // Size both grids from the canvas aspect (longest side = the given res).
   function sizeFrom(cssW, cssH) {
     const aspect = cssW / Math.max(1, cssH);
-    let w = SIM_RES;
-    let h = SIM_RES;
-    if (aspect >= 1) h = Math.round(SIM_RES / aspect);
-    else w = Math.round(SIM_RES * aspect);
-    simW = Math.max(4, w);
-    simH = Math.max(4, h);
+    const dim = (res) =>
+      aspect >= 1
+        ? [res, Math.max(4, Math.round(res / aspect))]
+        : [Math.max(4, Math.round(res * aspect)), res];
+    [simW, simH] = dim(SIM_RES);
+    [dyeW, dyeH] = dim(DYE_RES);
     texel = [1 / simW, 1 / simH];
   }
 
   function init(cssW, cssH) {
     sizeFrom(cssW, cssH);
-    allocFields(simW, simH);
+    allocFields();
     clearAll();
   }
 
@@ -195,7 +200,7 @@ export function createSolver(gl, canvas) {
       gl.uniform2f(P.splat.loc("u_point"), point[0], point[1]);
       gl.uniform3f(P.splat.loc("u_value"), value[0], value[1], value[2]);
       gl.uniform1f(P.splat.loc("u_radius"), radius);
-      gl.uniform1f(P.splat.loc("u_aspect"), simW / simH);
+      gl.uniform1f(P.splat.loc("u_aspect"), d.w / d.h);
     });
     swap(d);
   }
