@@ -80,16 +80,25 @@ export function loudnessOf(rms) {
   return clamp((e - 0.12) / 0.6, 0, 1);
 }
 
-// Color is RANDOM, not tied to pitch, octave, position, or loudness — the user
-// asked for this directly. Each new note picks a hue and keeps it for its whole
-// sustain (the caller holds `hue` across the note), so a note doesn't shimmer as
-// it rings, but every fresh note is a fresh color. `hue` is 0..360; pass null
-// for a one-off random pick. Mode (vibrancy) only nudges how vivid it is.
-export function randomHsl(hue, vibrancy = 1) {
-  const h = hue == null ? Math.random() * 360 : ((hue % 360) + 360) % 360;
-  const sat = clamp(80 * vibrancy, 60, 96);
-  const light = clamp(50 + (vibrancy - 1) * 6, 40, 60);
+// Color follows TIME, not pitch/octave/position/loudness. The hue drifts slowly
+// as you play (see timeHue), so notes close together in time share a near-matching
+// shade and the whole painting reads as one evolving, harmonious palette instead
+// of confetti. The caller passes the time-derived hue; this just dresses it as a
+// watercolor ink (vibrancy from the mode nudges how vivid it is).
+export function inkColor(hue, vibrancy = 1) {
+  const h = ((hue % 360) + 360) % 360;
+  const sat = clamp(70 * vibrancy, 52, 88);
+  const light = clamp(48 + (vibrancy - 1) * 6, 40, 58);
   return { h, s: sat, l: light };
+}
+
+// Map a moment in time (seconds) to a hue (0..360). A slow drift: ~9°/s wraps the
+// full spectrum about every 40s, so a short clip stays in one color family and a
+// long session glides gently through the wheel. Deterministic, so file seeks
+// rebuild the exact same colors.
+const HUE_DRIFT = 9; // degrees of hue per second
+export function timeHue(tSec) {
+  return ((tSec || 0) * HUE_DRIFT) % 360;
 }
 
 function intensity(rms) {
@@ -99,24 +108,27 @@ function intensity(rms) {
   return { e, alpha: 0.32 + e * 0.42 };
 }
 
-// Build ink-blot specs for a pitched onset (one per detected note).
-export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random) {
+// Build ink-blot specs for a pitched onset (one per detected note). `hue` is the
+// time-derived base color (see timeHue); chord tones get a tiny per-voice offset
+// so they read as distinct but still harmonious. SIZE comes from loudness: a
+// soft note is a small quiet bloom, a hard one is big and bold.
+export function mapPitched(classified, frame, vibrancy, dims, hue = 0, rng = Math.random) {
   const { width, height } = dims;
   const minDim = Math.min(width, height);
   const { e, alpha } = intensity(frame.rms);
   const bright = brightness(frame.centroidHz);
+  const loud = loudnessOf(frame.rms);
 
   // Noisiness of the sound -> granulation. Pure tones paint smooth, noisy ones
   // (breathy vocals, distorted strings) get a grainy, speckled texture.
   const grain = clamp(frame.flatness || 0, 0, 1);
 
-  return classified.notes.map(({ pc, octave, energy }) => {
+  return classified.notes.map(({ pc, octave, energy }, i) => {
     const cell = gridCell(pc, octave, width, height);
-    const color = randomHsl(rng() * 360, vibrancy); // each chord tone its own color
-    // A struck note (strum/chord tone) is a single moderate puff. Sustain growth
-    // comes from the per-frame strokeSpec path, so this stays modest to avoid
-    // flooding the sheet.
-    const radius = minDim * (0.035 + e * 0.05) * (0.7 + 0.3 * energy);
+    const color = inkColor(hue + i * 10, vibrancy); // tones near-matching, not identical
+    // Size scales with how hard it was played; energy (this tone's share of the
+    // chord) trims weaker voices a little.
+    const radius = minDim * (0.03 + loud * 0.07) * (0.7 + 0.3 * energy);
     return {
       x: cell.x,
       y: cell.y,
@@ -125,8 +137,7 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
       l: color.l,
       radius,
       alpha,
-      // How hard the note pushes into the water (drives the velocity impulse).
-      speed: 0.3 + e * 0.7,
+      loud, // drives how far the ink pushes into the water (see fluid inject)
       edge: 0.35 + bright * 0.45,
       grain,
       restrike: true, // a struck tone fades any prior ink at its spot first
@@ -140,16 +151,17 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
 // many puffs at one spot so the bloom GROWS, a quick note leaves a single small
 // puff, and a slide lays a moving, color-shifting trail. Keep alpha/radius low
 // because these accumulate frame after frame.
-// `hue` (0..360) is the note's random color, held by the caller for the whole
-// sustain so the note keeps one color instead of shimmering as it decays.
-// `slide` thickens the stroke: a bend/slide lays a noticeably fatter trail than
-// a held note sitting in place, so gestures read clearly as moving ink.
-export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = null, slide = false) {
+// `hue` (0..360) is the time-derived color (see timeHue), held by the caller for
+// the whole note so it keeps one shade instead of shimmering as it decays.
+// SIZE scales with loudness. `slide` thickens the stroke so a bend/slide lays a
+// noticeably fatter trail than a held note sitting in place.
+export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = 0, slide = false) {
   const { width, height } = dims;
   const minDim = Math.min(width, height);
   const { e } = intensity(frame.rms);
+  const loud = loudnessOf(frame.rms);
   const p = pitchToPoint(midiFloat, width, height);
-  const color = randomHsl(hue, vibrancy);
+  const color = inkColor(hue, vibrancy);
   const fat = slide ? 2.1 : 1; // slides/bends paint thicker than a still note
   return {
     x: p.x,
@@ -158,9 +170,9 @@ export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = null, sli
     h: color.h,
     s: color.s,
     l: color.l,
-    radius: minDim * (0.032 + e * 0.04) * fat,
+    radius: minDim * (0.026 + loud * 0.05) * fat,
     alpha: (0.05 + e * 0.1) * (slide ? 1.3 : 1),
-    speed: 0.15,
+    loud,
     edge: 0.45,
     grain: clamp(frame.flatness || 0, 0, 1),
     seed: 0,

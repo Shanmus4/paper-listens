@@ -9,7 +9,7 @@ import { createAnalyzer } from "./audio/features.js";
 import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { createModeTracker } from "./audio/mode.js";
-import { mapPitched, mapPercussive, strokeSpec, PITCH_NAMES } from "./visual/synesthesia.js";
+import { mapPitched, mapPercussive, strokeSpec, timeHue, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
 import { makeVoicedGate } from "./audio/tracker.js";
 import { extractChord } from "./audio/chord.js";
@@ -112,7 +112,6 @@ let evtPtr = 0; // next event to paint
 let renderedT = 0; // the song time the painting currently reflects (sec)
 let scrubbing = false; // true while the user drags the seek bar
 let scrubTargetT = 0; // latest scrub position, repainted at most once per frame
-let lastAnchor = null; // previous pitched note's home, for melodic spread direction
 let micSimT = 0; // mic mode has no timeline, so we drive the fluid by wall time
 let lastFrameMs = performance.now();
 let fileEnv = null; // loudness envelope of the loaded song (drives the meter)
@@ -159,27 +158,6 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-// Give a pitched blot its spread direction from the melody: ink reaches from the
-// previous note's home toward this one. Notes that repeat the same spot get a
-// gentle seeded puff so they still billow. Direction is consumed by the fluid
-// renderer as a velocity impulse; the Canvas 2D fallback ignores it.
-function seededDir(seed) {
-  const a = (seed != null ? seed : 0.5) * Math.PI * 2 * 5 + 0.7;
-  return [Math.cos(a), Math.sin(a)];
-}
-function attachMotion(blot) {
-  if (lastAnchor) {
-    const dx = blot.x - lastAnchor.x;
-    const dy = blot.y - lastAnchor.y;
-    const len = Math.hypot(dx, dy);
-    blot.dir = len > 1 ? [dx / len, dy / len] : seededDir(blot.seed);
-  } else {
-    blot.dir = seededDir(blot.seed);
-  }
-  lastAnchor = { x: blot.x, y: blot.y };
-  return blot;
-}
-
 // ---- Timeline painting (file playback + seeking) ----
 // Paint one analyzed event, either animated (live playback) or baked instantly
 // (rebuilding the painting at a seek position).
@@ -196,10 +174,6 @@ function paintEvent(ev, nowMs, instant) {
     }
     const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.hue, !!ev.dir);
     spec.restrike = !!ev.restrike;
-    if (ev.dir) {
-      spec.dir = ev.dir;
-      spec.speed = 0.4;
-    }
     if (instant) renderer.bake(spec);
     else renderer.addBlot(spec, nowMs);
   } else if (ev.type === "pitched") {
@@ -211,8 +185,7 @@ function paintEvent(ev, nowMs, instant) {
       lastDecision = `chord ${lastPaintedLabel}`;
       updateHud(ev.frame);
     }
-    for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, rng)) {
-      attachMotion(blot);
+    for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, ev.hue, rng)) {
       if (instant) renderer.bake(blot);
       else renderer.addBlot(blot, nowMs);
     }
@@ -295,37 +268,29 @@ function paintLive(f, now, onset) {
     return;
   }
   const m = midiOf(f.pitchHz);
-  let dir = null;
-  let speed = 0.12;
+  let dir = false; // becomes true when the pitch is moving (a slide -> thicker trail)
   let fresh = false; // true only on the first frame of a new note / a re-pluck
   if (liveMidi == null) {
     liveMidi = m; // first frame of a new note
-    liveHue = Math.random() * 360; // a fresh random color for the new note
+    liveHue = timeHue(micSimT); // color follows time, not the note
     fresh = true;
   } else {
     const dm = m - liveMidi;
     if (Math.abs(dm) > 7) {
       liveMidi = m; // a leap to a new note, not a slide
-      liveHue = Math.random() * 360;
+      liveHue = timeHue(micSimT);
       fresh = true;
     } else {
       liveMidi += dm * 0.5; // glide smoothly (slide / bend / vibrato / sustain)
-      if (Math.abs(dm) > 0.04) {
-        dir = [0, -Math.sign(dm)]; // rising pitch pushes ink up, falling down
-        speed = 0.12 + Math.min(1, Math.abs(dm) / 2) * 0.5;
-      }
+      if (Math.abs(dm) > 0.04) dir = true; // pitch is moving -> a slide (thicker trail)
     }
   }
   if (onset) {
-    liveHue = Math.random() * 360; // a fresh pluck recolors
+    liveHue = timeHue(micSimT); // a fresh pluck recolors to the current time-hue
     fresh = true;
   }
-  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveHue, dir != null);
-  spec.restrike = fresh; // a new note/pluck fades any prior ink at its spot; sustain accumulates
-  if (dir) {
-    spec.dir = dir;
-    spec.speed = speed;
-  }
+  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveHue, dir);
+  spec.restrike = fresh; // a new note/pluck fades any prior ink + gives a gentle push; sustain accumulates
   const n = freqToNote(f.pitchHz);
   lastPaintedLabel = `${PITCH_NAMES[n.pc]}${n.octave}`;
   lastDecision = `single ${lastPaintedLabel}`;
@@ -340,8 +305,7 @@ function paintNotes(notes, frame, now) {
   lastDecision = `chord ${lastPaintedLabel}`;
   if (DEBUG) console.log(`[paint] ${lastPaintedLabel}`, Math.round(frame.pitchHz) + "Hz");
   const dims = renderer.dims();
-  for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
-    attachMotion(blot);
+  for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims, timeHue(micSimT))) {
     renderer.addBlot(blot, now);
   }
   fadeHeadline();
@@ -356,8 +320,7 @@ function fadeHeadline() {
 // ---- Source management ----
 function clearCanvas() {
   renderer.clear();
-  lastAnchor = null; // a fresh sheet restarts the melodic spread chain
-  micSimT = 0; // and the mic sim clock, to match the reset fluid field
+  micSimT = 0; // reset the mic sim clock to match the reset fluid field
   resetTracker();
   firstPaint = false;
   headline.classList.remove("faded");

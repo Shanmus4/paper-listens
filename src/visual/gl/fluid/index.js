@@ -83,8 +83,14 @@ export function createFluidInk(canvas) {
     return [x / size.cssW, 1 - y / size.cssH];
   }
 
-  // Inject a pitched note: a dye puff (its color) plus a velocity impulse in its
-  // melodic direction (dir is a unit vector in canvas space, y pointing down).
+  const fract = (x) => x - Math.floor(x);
+
+  // Inject a pitched note: a dye puff (its color) plus, on a struck note, a
+  // gentle velocity push so the bloom billows like ink in water. The push goes
+  // in a direction that VARIES from spot to spot (hashed from the point), not a
+  // shared up/down "pitch direction" — that old scheme piled every frame's push
+  // into vertical columns ("waterfalls"). Louder notes push harder and spread
+  // wider; soft notes barely move. Sustain puffs (no restrike) add dye only.
   function inject(spec) {
     const rgb = spec.color || hslToRgb(spec.h, spec.s, spec.l);
     const density = (spec.alpha || 0.4) * DYE_STRENGTH;
@@ -99,12 +105,11 @@ export function createFluidInk(canvas) {
     }
     solver.splat("dye", point, absorb, Math.max(1e-4, (uvR * DYE_R) ** 2));
 
-    const dir = spec.dir || [0, 0];
-    const speed = spec.speed != null ? spec.speed : 0.5;
-    const mag = VEL_MAG * speed;
-    // Canvas y is down; sim uv y is up, so flip the y component of the impulse.
-    const vel = [dir[0] * mag, -dir[1] * mag, 0];
-    if (dir[0] !== 0 || dir[1] !== 0) {
+    if (spec.restrike) {
+      const loud = spec.loud != null ? spec.loud : 0.3;
+      const ang = fract(Math.sin(point[0] * 127.1 + point[1] * 311.7) * 43758.5453) * Math.PI * 2;
+      const mag = VEL_MAG * (0.08 + loud * 0.35);
+      const vel = [Math.cos(ang) * mag, Math.sin(ang) * mag, 0];
       solver.splat("velocity", point, vel, Math.max(1e-4, (uvR * VEL_R) ** 2));
     }
   }

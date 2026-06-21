@@ -14,6 +14,7 @@ import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
 import { createNoteTracker, makeVoicedGate } from "./tracker.js";
 import { extractChord } from "./chord.js";
+import { timeHue } from "../visual/synesthesia.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
 const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
@@ -39,7 +40,7 @@ const seedFor = (tSec) => (tSec * 9301 + 49297) % 1 || 0.5;
 // A chord onset: paint every detected tone (chroma-based, see chord.js).
 function chordEvent(tSec, notes, frame, vibrancy) {
   const cls = { type: "pitched", notes, centroidHz: frame.centroidHz };
-  return { t: tSec, type: "pitched", cls, frame, vibrancy, seed: seedFor(tSec) };
+  return { t: tSec, type: "pitched", cls, hue: timeHue(tSec), frame, vibrancy, seed: seedFor(tSec) };
 }
 // A continuous stroke: one small puff at a (fractional) MIDI pitch, emitted
 // every voiced frame. Held notes stack puffs and grow; slides lay a trail.
@@ -50,10 +51,6 @@ function strokeEvent(tSec, midi, dir, hue, restrike, frame, vibrancy) {
   return { t: tSec, type: "stroke", midi, dir, hue, restrike, frame, vibrancy, seed: seedFor(tSec) };
 }
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
-// Deterministic random-ish hue from a note's start time, spaced by the golden
-// angle so consecutive notes get well-separated colors. Same time -> same hue,
-// so seeking rebuilds the identical painting.
-const hueAt = (tSec) => (tSec * 1000 * 0.137508 * 360) % 360;
 function percEvent(tSec, cls, frame, vibrancy) {
   return { t: tSec, type: "percussive", cls, frame, vibrancy, seed: seedFor(tSec) };
 }
@@ -145,15 +142,15 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
       let fresh = false; // first frame of a new note / a re-pluck
       if (strokeMidi == null || Math.abs(m - strokeMidi) > 7) {
         strokeMidi = m; // new note / leap
-        strokeHue = hueAt(tSec); // a fresh random color for the new note
+        strokeHue = timeHue(tSec); // color follows time, not the note
         fresh = true;
       } else {
         const dm = m - strokeMidi;
         strokeMidi += dm * 0.5; // glide
-        if (Math.abs(dm) > 0.04) dir = [0, -Math.sign(dm)]; // rising up, falling down
+        if (Math.abs(dm) > 0.04) dir = true; // pitch moving -> a slide (thicker trail)
       }
       if (on) {
-        strokeHue = hueAt(tSec); // a fresh pluck recolors
+        strokeHue = timeHue(tSec); // a fresh pluck recolors to the current time-hue
         fresh = true;
       }
       events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, fresh, frame, mode.getVibrancy()));
