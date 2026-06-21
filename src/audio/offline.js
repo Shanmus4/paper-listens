@@ -13,11 +13,13 @@ import { createOnsetDetector } from "./onset.js";
 import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
 import { createNoteTracker, makeVoicedGate } from "./tracker.js";
-import { extractChord } from "./chord.js";
+import { createPolyPitch } from "./polypitch.js";
+import { createMagFFT } from "./fft.js";
 import { timeHue } from "../visual/synesthesia.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
 const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
+const POLY_SIZE = 4096; // window for polyphonic pluck detection (finer bins than 1024)
 
 const FEATURES = ["rms", "spectralCentroid", "spectralFlatness", "chroma", "amplitudeSpectrum"];
 
@@ -67,11 +69,18 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   const mode = createModeTracker();
   const tracker = createNoteTracker(); // tuner-style tracking (kept for percussion gating)
   const voiced = makeVoicedGate(); // per-frame "clear pitch?" for continuous strokes
+  const poly = createPolyPitch({ sampleRate: sr, fftSize: POLY_SIZE }); // polyphonic pluck detection
+  const polyFFT = createMagFFT(POLY_SIZE); // own FFT (no Meyda window-size toggling)
   let strokeMidi = null; // smoothed pitch across frames (same glide logic as the mic)
   let strokeHue = 0; // held random color of the current note (set at note start)
   const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
   const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
+  const polyChunk = new Float32Array(POLY_SIZE); // trailing window for poly detection
+  const midiToNote = (m) => {
+    const r = Math.round(m);
+    return { pc: ((r % 12) + 12) % 12, octave: Math.floor(r / 12) - 1 };
+  };
 
   const events = [];
   // A coarse loudness envelope (one value per analysis frame) so the level
@@ -119,42 +128,46 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
 
     env.push(frame.rms);
 
+    // High-resolution spectrum for polyphonic pluck detection (finer bins than
+    // the 1024 feature window), via our own FFT.
+    const polyEnd = start + BUFFER_SIZE;
+    const polyStart = polyEnd - POLY_SIZE;
+    polyChunk.fill(0);
+    const pfrom = Math.max(0, polyStart);
+    polyChunk.set(signal.subarray(pfrom, polyEnd), pfrom - polyStart);
+    const polySpec = polyFFT.mag(polyChunk);
+
     const tSec = start / sr;
     mode.update(frame.chroma, frame.rms);
     mode.evaluate();
     const on = onset.process(frame.flux, frame.rms, tSec * 1000);
-
-    // Same continuous tracking as the live mic: a clear stable pitch becomes one
-    // note; a noisy pitchless attack may be percussion; garbage pitch paints
-    // nothing (no invented chords).
-    // Same layering as the live mic: a true simultaneous strum paints all its
-    // tones; otherwise a clear pitch paints a continuous stroke (sustain grows,
-    // slides trail); a noisy pitchless attack may be a drum (songs really do
-    // have drums, so we keep percussion for files).
-    const chord = on ? extractChord(frame) : null;
     const r = tracker.process(frame, on);
-    if (chord) {
-      strokeMidi = null;
-      events.push(chordEvent(tSec, chord, frame, mode.getVibrancy()));
-    } else if (voiced(frame)) {
+
+    // Update the polyphonic background every frame; on a pluck it returns the
+    // freshly sounded note — even over a still-ringing bass, which is what the
+    // mono detector gets wrong for fingerstyle.
+    const plucked = poly.pluck(polySpec, on);
+
+    if (on && plucked.length) {
+      // Each pluck paints its own note at its own spot, and seeds the sustain so
+      // the note keeps ringing there until the next pluck.
+      strokeMidi = midiOf(plucked[0].hz);
+      strokeHue = timeHue(tSec);
+      const notes = plucked.map((p) => ({ ...midiToNote(p.midi), energy: p.energy }));
+      events.push(chordEvent(tSec, notes, frame, mode.getVibrancy()));
+    } else if (voiced(frame) && strokeMidi != null) {
+      // Between plucks: sustain the last plucked note in place so its bloom grows.
+      // Follow the mono pitch only when it stays CLOSE (a real slide/vibrato);
+      // ignore far jumps, which are usually the loud bass stealing the detector.
       const m = midiOf(frame.pitchHz);
-      let dir = null;
-      let fresh = false; // first frame of a new note / a re-pluck
-      if (strokeMidi == null || Math.abs(m - strokeMidi) > 7) {
-        strokeMidi = m; // new note / leap
-        strokeHue = timeHue(tSec); // color follows time, not the note
-        fresh = true;
-      } else {
+      let dir = false;
+      if (Math.abs(m - strokeMidi) <= 2) {
         const dm = m - strokeMidi;
-        strokeMidi += dm * 0.5; // glide
-        if (Math.abs(dm) > 0.04) dir = true; // pitch moving -> a slide (thicker trail)
+        strokeMidi += dm * 0.5; // glide (slide / bend / vibrato)
+        if (Math.abs(dm) > 0.04) dir = true;
       }
-      if (on) {
-        strokeHue = timeHue(tSec); // a fresh pluck recolors to the current time-hue
-        fresh = true;
-      }
-      events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, fresh, frame, mode.getVibrancy()));
-    } else {
+      events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, false, frame, mode.getVibrancy()));
+    } else if (!voiced(frame)) {
       strokeMidi = null;
       if (r && r.type === "perc") {
         const cls = classifyOnset(frame);
