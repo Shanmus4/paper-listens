@@ -58,24 +58,38 @@ export function gridCell(pc, octave, width, height) {
   };
 }
 
-// Sound -> color by brightness/mood (not by pitch class — position already
-// carries which note). "Brightness" is the character of the sound: how bright
-// its timbre is AND how high/low it sits (register). Low, heavy sounds paint
-// deep warm tones; high, airy sounds paint cool light tones. Because register
-// is per-note, a chord that spans octaves paints several colors at once, and a
-// melody that climbs sweeps warm -> cool, giving the canvas real color variety
-// without ever coloring by note name. Mode (vibrancy) nudges the vividness.
-export function noteColor(pc, octave, vibrancy, centroidHz) {
-  const timbre = brightness(centroidHz);
-  const register = clamp((octave - OCT_MIN) / (OCT_MAX - OCT_MIN), 0, 1);
-  // Register leads strongly so low vs high notes clearly split warm vs cool
-  // (timbre only tints), otherwise a bright-centroid song collapses to one color.
-  const score = clamp(0.85 * register + 0.15 * timbre, 0, 1);
-  const hue = 10 + score * 230; // ~10 (deep warm red/orange) -> ~240 (cool blue)
-  // Richer floor so the paint reads as vivid watercolor, not washed-out tint.
-  const sat = clamp((96 - score * 16) * vibrancy, 58, 98);
-  const light = clamp(34 + score * 26 + (vibrancy - 1) * 6, 26, 74);
+// Continuous pitch (fractional MIDI) -> canvas point. Unlike gridCell this isn't
+// snapped to a note, so a slide or bend moves the paint smoothly between cells.
+// The note axis follows the chromatic position (0..12) within the octave; the
+// octave axis stays on its row. A slide that crosses an octave wraps the note
+// axis (back to the start) and steps the octave axis, matching the grid layout.
+export function pitchToPoint(midiFloat, width, height) {
+  const g = gridGeometry(width, height);
+  const pcc = (((midiFloat % 12) + 12) % 12); // 0..12 continuous pitch class
+  const octave = clamp(Math.floor(midiFloat / 12) - 1, OCT_MIN, OCT_MAX);
+  const row = OCT_MAX - octave;
+  const noteCoord = (pcc + 0.5) * g.noteSpan;
+  const octCoord = (row + 0.5) * g.octSpan;
+  return { x: g.notesOnX ? noteCoord : octCoord, y: g.notesOnX ? octCoord : noteCoord };
+}
+
+// Pitch -> color as a rainbow that cycles once per octave. Octave does NOT set
+// the color (position already carries high/low); instead the chromatic position
+// drives the hue, so the color is always moving: a small slide shifts the hue,
+// a chord paints several hues, and the canvas stays colorful. `energy` and mode
+// (vibrancy) push the vividness so louder notes read bolder.
+export function pitchColor(midiFloat, energy = 0.6, vibrancy = 1) {
+  const pcc = (((midiFloat % 12) + 12) % 12) / 12; // 0..1 around the octave
+  const hue = pcc * 360; // C red -> D yellow -> E green -> G blue -> B magenta
+  const sat = clamp((72 + energy * 22) * vibrancy, 55, 96);
+  const light = clamp(40 + energy * 16 + (vibrancy - 1) * 6, 30, 66);
   return { h: hue, s: sat, l: light };
+}
+
+// Back-compat for callers that still pass discrete (pc, octave): build the MIDI
+// value and defer to the continuous pitchColor above.
+export function noteColor(pc, octave, vibrancy, _centroidHz, energy = 0.6) {
+  return pitchColor((octave + 1) * 12 + pc, energy, vibrancy);
 }
 
 function intensity(rms) {
@@ -98,11 +112,11 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
 
   return classified.notes.map(({ pc, octave, energy }) => {
     const cell = gridCell(pc, octave, width, height);
-    const color = noteColor(pc, octave, vibrancy, frame.centroidHz);
-    // Generous billows that spill well past the note's home cell so a few notes
-    // already fill space and chords overlap and mix, instead of leaving the
-    // sheet sparse. Louder/stronger tones bloom larger.
-    const radius = minDim * (0.06 + e * 0.1) * (0.7 + 0.3 * energy);
+    const color = pitchColor((octave + 1) * 12 + pc, e, vibrancy);
+    // A struck note (strum/chord tone) is a single moderate puff. Sustain growth
+    // comes from the per-frame strokeSpec path, so this stays modest to avoid
+    // flooding the sheet.
+    const radius = minDim * (0.035 + e * 0.05) * (0.7 + 0.3 * energy);
     return {
       x: cell.x,
       y: cell.y,
@@ -118,6 +132,33 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
       seed: rng(),
     };
   });
+}
+
+// Build one small per-frame "stroke" puff for a continuously sounding pitch
+// (fractional MIDI). Called every frame a note is voiced: a held note stacks
+// many puffs at one spot so the bloom GROWS, a quick note leaves a single small
+// puff, and a slide lays a moving, color-shifting trail. Keep alpha/radius low
+// because these accumulate frame after frame.
+export function strokeSpec(midiFloat, frame, dims, vibrancy = 1) {
+  const { width, height } = dims;
+  const minDim = Math.min(width, height);
+  const { e } = intensity(frame.rms);
+  const p = pitchToPoint(midiFloat, width, height);
+  const color = pitchColor(midiFloat, e, vibrancy);
+  return {
+    x: p.x,
+    y: p.y,
+    midi: midiFloat,
+    h: color.h,
+    s: color.s,
+    l: color.l,
+    radius: minDim * (0.016 + e * 0.02),
+    alpha: 0.05 + e * 0.1,
+    speed: 0.15,
+    edge: 0.45,
+    grain: clamp(frame.flatness || 0, 0, 1),
+    seed: 0,
+  };
 }
 
 // Percussive onset -> monochrome ink splatter. Position from centroid:

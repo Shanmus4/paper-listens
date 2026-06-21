@@ -12,7 +12,7 @@ import { PitchDetector } from "https://esm.sh/pitchy@4";
 import { createOnsetDetector } from "./onset.js";
 import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
-import { createNoteTracker } from "./tracker.js";
+import { createNoteTracker, makeVoicedGate } from "./tracker.js";
 import { extractChord } from "./chord.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
@@ -36,15 +36,17 @@ function toMono(audioBuffer) {
 // A stable per-event seed keeps a blot's shape identical every rebuild.
 const seedFor = (tSec) => (tSec * 9301 + 49297) % 1 || 0.5;
 
-function pitchedEvent(tSec, pc, octave, frame, vibrancy) {
-  const cls = { type: "pitched", notes: [{ pc, octave, energy: 1 }], centroidHz: frame.centroidHz };
-  return { t: tSec, type: "pitched", cls, frame, vibrancy, seed: seedFor(tSec) };
-}
 // A chord onset: paint every detected tone (chroma-based, see chord.js).
 function chordEvent(tSec, notes, frame, vibrancy) {
   const cls = { type: "pitched", notes, centroidHz: frame.centroidHz };
   return { t: tSec, type: "pitched", cls, frame, vibrancy, seed: seedFor(tSec) };
 }
+// A continuous stroke: one small puff at a (fractional) MIDI pitch, emitted
+// every voiced frame. Held notes stack puffs and grow; slides lay a trail.
+function strokeEvent(tSec, midi, dir, frame, vibrancy) {
+  return { t: tSec, type: "stroke", midi, dir, frame, vibrancy, seed: seedFor(tSec) };
+}
+const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 function percEvent(tSec, cls, frame, vibrancy) {
   return { t: tSec, type: "percussive", cls, frame, vibrancy, seed: seedFor(tSec) };
 }
@@ -59,7 +61,9 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
 
   const onset = createOnsetDetector({ sensitivity });
   const mode = createModeTracker();
-  const tracker = createNoteTracker(); // same tuner-style tracking as the live mic
+  const tracker = createNoteTracker(); // tuner-style tracking (kept for percussion gating)
+  const voiced = makeVoicedGate(); // per-frame "clear pitch?" for continuous strokes
+  let strokeMidi = null; // smoothed pitch across frames (same glide logic as the mic)
   const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
   const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
@@ -118,18 +122,32 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     // Same continuous tracking as the live mic: a clear stable pitch becomes one
     // note; a noisy pitchless attack may be percussion; garbage pitch paints
     // nothing (no invented chords).
-    // Same layering as the live mic: a chord onset paints all its tones; a
-    // single stable pitch paints one note; a noisy pitchless attack may be a
-    // drum (songs really do have drums, so we keep percussion for files).
+    // Same layering as the live mic: a true simultaneous strum paints all its
+    // tones; otherwise a clear pitch paints a continuous stroke (sustain grows,
+    // slides trail); a noisy pitchless attack may be a drum (songs really do
+    // have drums, so we keep percussion for files).
     const chord = on ? extractChord(frame) : null;
     const r = tracker.process(frame, on);
     if (chord) {
+      strokeMidi = null;
       events.push(chordEvent(tSec, chord, frame, mode.getVibrancy()));
-    } else if (r && r.type === "note") {
-      events.push(pitchedEvent(tSec, r.pc, r.octave, frame, mode.getVibrancy()));
-    } else if (r && r.type === "perc") {
-      const cls = classifyOnset(frame);
-      if (cls.type === "percussive") events.push(percEvent(tSec, cls, frame, mode.getVibrancy()));
+    } else if (voiced(frame)) {
+      const m = midiOf(frame.pitchHz);
+      let dir = null;
+      if (strokeMidi == null || Math.abs(m - strokeMidi) > 7) {
+        strokeMidi = m; // new note / leap
+      } else {
+        const dm = m - strokeMidi;
+        strokeMidi += dm * 0.5; // glide
+        if (Math.abs(dm) > 0.04) dir = [0, -Math.sign(dm)]; // rising up, falling down
+      }
+      events.push(strokeEvent(tSec, strokeMidi, dir, frame, mode.getVibrancy()));
+    } else {
+      strokeMidi = null;
+      if (r && r.type === "perc") {
+        const cls = classifyOnset(frame);
+        if (cls.type === "percussive") events.push(percEvent(tSec, cls, frame, mode.getVibrancy()));
+      }
     }
   }
 

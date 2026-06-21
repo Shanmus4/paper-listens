@@ -9,9 +9,9 @@ import { createAnalyzer } from "./audio/features.js";
 import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { createModeTracker } from "./audio/mode.js";
-import { mapPitched, mapPercussive, PITCH_NAMES } from "./visual/synesthesia.js";
+import { mapPitched, mapPercussive, strokeSpec, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
-import { createNoteTracker } from "./audio/tracker.js";
+import { makeVoicedGate } from "./audio/tracker.js";
 import { extractChord } from "./audio/chord.js";
 import { seededRng } from "./visual/rng.js";
 import { createRecorder } from "./ui/record.js";
@@ -157,7 +157,16 @@ function attachMotion(blot) {
 function paintEvent(ev, nowMs, instant) {
   const dims = renderer.dims();
   const rng = seededRng(ev.seed);
-  if (ev.type === "pitched") {
+  if (ev.type === "stroke") {
+    // One continuous-stroke puff at a fractional pitch (sustain/slide path).
+    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy);
+    if (ev.dir) {
+      spec.dir = ev.dir;
+      spec.speed = 0.4;
+    }
+    if (instant) renderer.bake(spec);
+    else renderer.addBlot(spec, nowMs);
+  } else if (ev.type === "pitched") {
     // Drive the live readout during playback too (skip seek rebuilds so it
     // doesn't flicker through every event at once).
     if (!instant) {
@@ -207,7 +216,10 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // ~0.5 (measured F#1 = 0.53), so the low end is lenient (0.45); high notes must
 // be crisp (0.88) so high-frequency noise and harmonic mis-locks (e.g. F#6 at
 // clarity 0.46) are rejected. Confirm-frames still require a stable pitch.
-const micTracker = createNoteTracker({ silenceRms: 0.0012, clarityLo: 0.35, clarityHi: 0.8 });
+const micVoiced = makeVoicedGate({ silenceRms: 0.0012, clarityLo: 0.35, clarityHi: 0.8 });
+let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
+
+const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 
 function onAudioFrame(f) {
   levelMeter.push(f.rms);
@@ -218,23 +230,58 @@ function onAudioFrame(f) {
   const now = performance.now();
   const onset = onsetDetector.process(f.flux, f.rms, now);
 
-  // Chord layer first: a strummed/struck attack with several pitch classes
-  // paints ALL of them (chroma-based, see audio/chord.js). A single note shows
-  // only one strong pitch class, so it returns null here and falls through to
-  // the accurate monophonic tracker below. Live guitar has no drums, so an
-  // unclear attack just paints nothing instead of a spurious percussion splat.
+  // Chord layer first: a true simultaneous strum (>= 3 strong pitch classes)
+  // paints all its tones at the strum moment. A single note (even a rich,
+  // harmonic-heavy one) won't clear that bar and falls through to the continuous
+  // painter below. Live guitar has no drums, so an unclear attack paints nothing
+  // instead of a spurious percussion splat.
   if (onset) {
     const chord = extractChord(f);
     if (chord) {
+      liveMidi = null; // the strum supersedes any ongoing single-note stroke
       paintNotes(chord, f, now);
       return;
     }
   }
 
-  const r = micTracker.process(f, onset);
-  if (r && r.type === "note") {
-    paintNotes([{ pc: r.pc, octave: r.octave, energy: 1 }], f, now);
+  paintLive(f, now);
+}
+
+// Continuous painting: every frame a clear pitch sounds, lay a small puff at its
+// live position. A held note stacks puffs in one spot so the bloom GROWS; a
+// quick note leaves a single small puff; a slide/bend lays a moving, colour-
+// shifting trail. Pitch movement drives the spread direction (rising -> up).
+function paintLive(f, now) {
+  if (!micVoiced(f)) {
+    liveMidi = null;
+    return;
   }
+  const m = midiOf(f.pitchHz);
+  let dir = null;
+  let speed = 0.12;
+  if (liveMidi == null) {
+    liveMidi = m; // first frame of a new note
+  } else {
+    const dm = m - liveMidi;
+    if (Math.abs(dm) > 7) {
+      liveMidi = m; // a leap to a new note, not a slide
+    } else {
+      liveMidi += dm * 0.5; // glide smoothly (slide / bend / vibrato / sustain)
+      if (Math.abs(dm) > 0.04) {
+        dir = [0, -Math.sign(dm)]; // rising pitch pushes ink up, falling down
+        speed = 0.12 + Math.min(1, Math.abs(dm) / 2) * 0.5;
+      }
+    }
+  }
+  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy());
+  if (dir) {
+    spec.dir = dir;
+    spec.speed = speed;
+  }
+  const n = freqToNote(f.pitchHz);
+  lastPaintedLabel = `${PITCH_NAMES[n.pc]}${n.octave}`;
+  renderer.addBlot(spec, now);
+  fadeHeadline();
 }
 
 // Paint one or more notes (a single tracked note, or every tone of a chord).
@@ -287,9 +334,9 @@ function teardownSource() {
   modeTracker = createModeTracker();
 }
 
-// Reset the live monophonic tracker (new source / fresh sheet).
+// Reset the live painter state (new source / fresh sheet).
 function resetTracker() {
-  micTracker.reset();
+  liveMidi = null;
 }
 
 async function startMic() {

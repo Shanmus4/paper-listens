@@ -89,3 +89,26 @@ export function createNoteTracker(opts = {}) {
 
   return { process, reset };
 }
+
+// A per-frame "is there a clear, in-range pitch right now?" test, sharing the
+// same frequency-dependent clarity gate as the tracker. Used by the continuous
+// painter (every voiced frame lays a little ink), independent of the tracker's
+// confirm/debounce logic which is about discrete note ONSETS.
+export function makeVoicedGate(opts = {}) {
+  const clarityLo = opts.clarityLo != null ? opts.clarityLo : 0.55;
+  const clarityHi = opts.clarityHi != null ? opts.clarityHi : 0.85;
+  const silenceRms = opts.silenceRms != null ? opts.silenceRms : 0.004;
+  const LO_HZ = 80;
+  const HI_HZ = 600;
+  const L2LO = Math.log2(LO_HZ);
+  const L2HI = Math.log2(HI_HZ);
+  const gateAt = (hz) => {
+    const t = Math.min(1, Math.max(0, (Math.log2(hz) - L2LO) / (L2HI - L2LO)));
+    return clarityLo + t * (clarityHi - clarityLo);
+  };
+  return function voiced(f) {
+    if ((f.rms || 0) < silenceRms) return false;
+    if (!(f.pitchHz >= PITCH_LO && f.pitchHz <= PITCH_HI)) return false;
+    return (f.clarity || 0) >= gateAt(f.pitchHz);
+  };
+}

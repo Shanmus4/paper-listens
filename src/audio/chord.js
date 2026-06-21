@@ -14,9 +14,15 @@
 
 import { freqToNote, centroidToOctave } from "./notes.js";
 
-const PICK = 0.62; // a pitch class counts if it's >= this fraction of the loudest
-const MAX_NOTES = 5; // cap voices in one chord
-const MIN_FOR_CHORD = 2; // fewer active classes than this is "a single note, not a chord"
+// Single rich notes (piano, a sustained guitar string) have strong harmonics —
+// the 3rd harmonic is a fifth, the 5th a major third — that light up other
+// chroma bins. So we only call it a chord when SEVERAL pitch classes are nearly
+// as loud as the strongest (high PICK) and there are at least 3 of them; a lone
+// note with two harmonic partials won't clear that bar and stays a single note,
+// handled by the continuous tracker instead.
+const PICK = 0.8; // a pitch class counts only if it's >= this fraction of the loudest
+const MAX_NOTES = 4; // cap voices in one chord
+const MIN_FOR_CHORD = 3; // need this many strong classes to be a real chord
 const OCT_MIN = 1;
 const OCT_MAX = 7;
 const SPREAD = 12; // min semitones between voices: an OPEN voicing that spreads
@@ -26,7 +32,15 @@ const SPREAD = 12; // min semitones between voices: an OPEN voicing that spreads
 
 // Returns an array of { pc, octave, energy } for a chord, or null when the
 // frame isn't chord-like (silent, or a single dominant pitch class).
+const CLARITY_VETO = 0.58; // above this the pitch is one clear note, not a chord
+
 export function extractChord(frame) {
+  // A real strum has no single fundamental, so McLeod clarity is low/moderate.
+  // A single note (even a harmonically rich piano/guitar tone) reads HIGH
+  // clarity. So a confident pitch vetoes the chord path — its overtones won't be
+  // mistaken for chord tones; the continuous tracker paints it as one note.
+  if ((frame.clarity || 0) >= CLARITY_VETO) return null;
+
   const chroma = frame.chroma || [];
   let max = 0;
   for (const v of chroma) if (v > max) max = v;
