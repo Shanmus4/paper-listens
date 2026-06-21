@@ -33,6 +33,7 @@ const SPREAD = 12; // min semitones between voices: an OPEN voicing that spreads
 // Returns an array of { pc, octave, energy } for a chord, or null when the
 // frame isn't chord-like (silent, or a single dominant pitch class).
 const CLARITY_VETO = 0.58; // above this the pitch is one clear note, not a chord
+const FLAT_VETO = 0.34; // above this the frame is a noisy transient, not a clean chord
 
 export function extractChord(frame) {
   // A real strum has no single fundamental, so McLeod clarity is low/moderate.
@@ -40,6 +41,10 @@ export function extractChord(frame) {
   // clarity. So a confident pitch vetoes the chord path — its overtones won't be
   // mistaken for chord tones; the continuous tracker paints it as one note.
   if ((frame.clarity || 0) >= CLARITY_VETO) return null;
+  // The noisy ATTACK of a single plucked note briefly flattens the spectrum, so
+  // many pitch classes look active for a frame and a phantom chord fires. A real
+  // sustained chord is far more tonal, so reject noise-like frames outright.
+  if ((frame.flatness || 0) >= FLAT_VETO) return null;
 
   const chroma = frame.chroma || [];
   let max = 0;

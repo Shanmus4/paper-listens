@@ -73,23 +73,23 @@ export function pitchToPoint(midiFloat, width, height) {
   return { x: g.notesOnX ? noteCoord : octCoord, y: g.notesOnX ? octCoord : noteCoord };
 }
 
-// Pitch -> color as a rainbow that cycles once per octave. Octave does NOT set
-// the color (position already carries high/low); instead the chromatic position
-// drives the hue, so the color is always moving: a small slide shifts the hue,
-// a chord paints several hues, and the canvas stays colorful. `energy` and mode
-// (vibrancy) push the vividness so louder notes read bolder.
-export function pitchColor(midiFloat, energy = 0.6, vibrancy = 1) {
-  const pcc = (((midiFloat % 12) + 12) % 12) / 12; // 0..1 around the octave
-  const hue = pcc * 360; // C red -> D yellow -> E green -> G blue -> B magenta
-  const sat = clamp((72 + energy * 22) * vibrancy, 55, 96);
-  const light = clamp(40 + energy * 16 + (vibrancy - 1) * 6, 30, 66);
-  return { h: hue, s: sat, l: light };
+// Raw rms loudness -> a 0..1 "how hard you played it" value, stretched across a
+// realistic range (a soft fingerpick up to a hard strum).
+export function loudnessOf(rms) {
+  const e = clamp(Math.sqrt(rms || 0) * 3.0, 0, 1);
+  return clamp((e - 0.12) / 0.6, 0, 1);
 }
 
-// Back-compat for callers that still pass discrete (pc, octave): build the MIDI
-// value and defer to the continuous pitchColor above.
-export function noteColor(pc, octave, vibrancy, _centroidHz, energy = 0.6) {
-  return pitchColor((octave + 1) * 12 + pc, energy, vibrancy);
+// Color from HOW HARD the note is played, not from its pitch or its position on
+// the grid. Soft = cool blue, medium = green, hard = hot red/orange. So the same
+// note can be any color depending on attack, and colors never repeat going up/
+// down (octave) or left/right (pitch class). Mode (vibrancy) nudges vividness.
+export function loudColor(loud, vibrancy = 1) {
+  const l = clamp(loud, 0, 1);
+  const hue = 222 - l * 212; // ~222 blue (soft) -> green -> ~10 red (hard)
+  const sat = clamp((76 + l * 18) * vibrancy, 58, 96);
+  const light = clamp(52 - l * 12 + (vibrancy - 1) * 6, 34, 64);
+  return { h: hue, s: sat, l: light };
 }
 
 function intensity(rms) {
@@ -112,7 +112,7 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
 
   return classified.notes.map(({ pc, octave, energy }) => {
     const cell = gridCell(pc, octave, width, height);
-    const color = pitchColor((octave + 1) * 12 + pc, e, vibrancy);
+    const color = loudColor(loudnessOf(frame.rms), vibrancy);
     // A struck note (strum/chord tone) is a single moderate puff. Sustain growth
     // comes from the per-frame strokeSpec path, so this stays modest to avoid
     // flooding the sheet.
@@ -139,12 +139,15 @@ export function mapPitched(classified, frame, vibrancy, dims, rng = Math.random)
 // many puffs at one spot so the bloom GROWS, a quick note leaves a single small
 // puff, and a slide lays a moving, color-shifting trail. Keep alpha/radius low
 // because these accumulate frame after frame.
-export function strokeSpec(midiFloat, frame, dims, vibrancy = 1) {
+// `loud` is the held "attack force" (0..1) that colors the whole note, so a
+// sustained note keeps the color of its pluck instead of drifting as it decays.
+// Falls back to this frame's loudness when not supplied.
+export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, loud = null) {
   const { width, height } = dims;
   const minDim = Math.min(width, height);
   const { e } = intensity(frame.rms);
   const p = pitchToPoint(midiFloat, width, height);
-  const color = pitchColor(midiFloat, e, vibrancy);
+  const color = loudColor(loud != null ? loud : loudnessOf(frame.rms), vibrancy);
   return {
     x: p.x,
     y: p.y,
@@ -152,7 +155,7 @@ export function strokeSpec(midiFloat, frame, dims, vibrancy = 1) {
     h: color.h,
     s: color.s,
     l: color.l,
-    radius: minDim * (0.016 + e * 0.02),
+    radius: minDim * (0.032 + e * 0.04),
     alpha: 0.05 + e * 0.1,
     speed: 0.15,
     edge: 0.45,

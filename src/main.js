@@ -9,7 +9,7 @@ import { createAnalyzer } from "./audio/features.js";
 import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { createModeTracker } from "./audio/mode.js";
-import { mapPitched, mapPercussive, strokeSpec, PITCH_NAMES } from "./visual/synesthesia.js";
+import { mapPitched, mapPercussive, strokeSpec, loudnessOf, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
 import { makeVoicedGate } from "./audio/tracker.js";
 import { extractChord } from "./audio/chord.js";
@@ -159,7 +159,12 @@ function paintEvent(ev, nowMs, instant) {
   const rng = seededRng(ev.seed);
   if (ev.type === "stroke") {
     // One continuous-stroke puff at a fractional pitch (sustain/slide path).
-    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy);
+    if (!instant) {
+      const midi = Math.round(ev.midi);
+      lastPaintedLabel = `${PITCH_NAMES[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
+      updateHud(ev.frame);
+    }
+    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.loud);
     if (ev.dir) {
       spec.dir = ev.dir;
       spec.speed = 0.4;
@@ -218,6 +223,7 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // clarity 0.46) are rejected. Confirm-frames still require a stable pitch.
 const micVoiced = makeVoicedGate({ silenceRms: 0.0012, clarityLo: 0.35, clarityHi: 0.8 });
 let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
+let liveLoud = 0; // attack force (0..1) held for the current note, drives its color
 
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 
@@ -244,14 +250,14 @@ function onAudioFrame(f) {
     }
   }
 
-  paintLive(f, now);
+  paintLive(f, now, onset);
 }
 
 // Continuous painting: every frame a clear pitch sounds, lay a small puff at its
 // live position. A held note stacks puffs in one spot so the bloom GROWS; a
 // quick note leaves a single small puff; a slide/bend lays a moving, colour-
 // shifting trail. Pitch movement drives the spread direction (rising -> up).
-function paintLive(f, now) {
+function paintLive(f, now, onset) {
   if (!micVoiced(f)) {
     liveMidi = null;
     return;
@@ -261,10 +267,12 @@ function paintLive(f, now) {
   let speed = 0.12;
   if (liveMidi == null) {
     liveMidi = m; // first frame of a new note
+    liveLoud = loudnessOf(f.rms); // its attack force sets the color
   } else {
     const dm = m - liveMidi;
     if (Math.abs(dm) > 7) {
       liveMidi = m; // a leap to a new note, not a slide
+      liveLoud = loudnessOf(f.rms);
     } else {
       liveMidi += dm * 0.5; // glide smoothly (slide / bend / vibrato / sustain)
       if (Math.abs(dm) > 0.04) {
@@ -273,7 +281,8 @@ function paintLive(f, now) {
       }
     }
   }
-  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy());
+  if (onset) liveLoud = loudnessOf(f.rms); // a fresh pluck recolors by its force
+  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveLoud);
   if (dir) {
     spec.dir = dir;
     spec.speed = speed;

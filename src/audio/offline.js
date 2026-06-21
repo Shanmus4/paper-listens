@@ -14,6 +14,7 @@ import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
 import { createNoteTracker, makeVoicedGate } from "./tracker.js";
 import { extractChord } from "./chord.js";
+import { loudnessOf } from "../visual/synesthesia.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
 const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
@@ -43,8 +44,9 @@ function chordEvent(tSec, notes, frame, vibrancy) {
 }
 // A continuous stroke: one small puff at a (fractional) MIDI pitch, emitted
 // every voiced frame. Held notes stack puffs and grow; slides lay a trail.
-function strokeEvent(tSec, midi, dir, frame, vibrancy) {
-  return { t: tSec, type: "stroke", midi, dir, frame, vibrancy, seed: seedFor(tSec) };
+// `loud` is the note's held attack force (0..1), which colors it.
+function strokeEvent(tSec, midi, dir, loud, frame, vibrancy) {
+  return { t: tSec, type: "stroke", midi, dir, loud, frame, vibrancy, seed: seedFor(tSec) };
 }
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 function percEvent(tSec, cls, frame, vibrancy) {
@@ -64,6 +66,7 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   const tracker = createNoteTracker(); // tuner-style tracking (kept for percussion gating)
   const voiced = makeVoicedGate(); // per-frame "clear pitch?" for continuous strokes
   let strokeMidi = null; // smoothed pitch across frames (same glide logic as the mic)
+  let strokeLoud = 0; // held attack force of the current note (colors it)
   const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
   const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
@@ -136,12 +139,14 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
       let dir = null;
       if (strokeMidi == null || Math.abs(m - strokeMidi) > 7) {
         strokeMidi = m; // new note / leap
+        strokeLoud = loudnessOf(frame.rms); // attack force colors it
       } else {
         const dm = m - strokeMidi;
         strokeMidi += dm * 0.5; // glide
         if (Math.abs(dm) > 0.04) dir = [0, -Math.sign(dm)]; // rising up, falling down
       }
-      events.push(strokeEvent(tSec, strokeMidi, dir, frame, mode.getVibrancy()));
+      if (on) strokeLoud = loudnessOf(frame.rms); // a fresh pluck recolors
+      events.push(strokeEvent(tSec, strokeMidi, dir, strokeLoud, frame, mode.getVibrancy()));
     } else {
       strokeMidi = null;
       if (r && r.type === "perc") {
