@@ -49,8 +49,8 @@ function chordEvent(tSec, notes, frame, vibrancy) {
 // `hue` (0..360) is the note's held random color (deterministic per note start).
 // `restrike` is true only on a note's first frame / a re-pluck, so the renderer
 // fades any prior ink at that spot (history) while sustain frames accumulate.
-function strokeEvent(tSec, midi, dir, hue, restrike, frame, vibrancy) {
-  return { t: tSec, type: "stroke", midi, dir, hue, restrike, frame, vibrancy, seed: seedFor(tSec) };
+function strokeEvent(tSec, midi, dir, hue, restrike, shimmer, frame, vibrancy) {
+  return { t: tSec, type: "stroke", midi, dir, hue, restrike, shimmer, frame, vibrancy, seed: seedFor(tSec) };
 }
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 function percEvent(tSec, cls, frame, vibrancy) {
@@ -73,6 +73,8 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   const polyFFT = createMagFFT(POLY_SIZE); // own FFT (no Meyda window-size toggling)
   let strokeMidi = null; // smoothed pitch across frames (same glide logic as the mic)
   let strokeHue = 0; // held random color of the current note (set at note start)
+  let vibRev = 0; // decaying pitch-reversal count -> vibrato detection (matches the mic)
+  let vibSign = 0;
   const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
   const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
@@ -161,12 +163,20 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
       // ignore far jumps, which are usually the loud bass stealing the detector.
       const m = midiOf(frame.pitchHz);
       let dir = false;
+      let shimmer = false;
       if (Math.abs(m - strokeMidi) <= 2) {
         const dm = m - strokeMidi;
-        strokeMidi += dm * 0.5; // glide (slide / bend / vibrato)
-        if (Math.abs(dm) > 0.04) dir = true;
+        const sign = dm > 0.02 ? 1 : dm < -0.02 ? -1 : 0;
+        if (sign !== 0 && sign !== vibSign) {
+          vibRev = Math.min(4, vibRev + 1);
+          vibSign = sign;
+        }
+        shimmer = vibRev >= 2 && Math.abs(dm) < 0.7; // wobble in place = vibrato
+        strokeMidi += dm * (shimmer ? 0.12 : 0.5); // vibrato holds center; else glide
+        if (!shimmer && Math.abs(dm) > 0.04) dir = true;
       }
-      events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, false, frame, mode.getVibrancy()));
+      vibRev *= 0.9;
+      events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, false, shimmer, frame, mode.getVibrancy()));
     } else if (!voiced(frame)) {
       strokeMidi = null;
       if (r && r.type === "perc") {

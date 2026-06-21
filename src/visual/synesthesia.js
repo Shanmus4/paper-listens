@@ -155,14 +155,18 @@ export function mapPitched(classified, frame, vibrancy, dims, hue = 0, rng = Mat
 // the whole note so it keeps one shade instead of shimmering as it decays.
 // SIZE scales with loudness. `slide` thickens the stroke so a bend/slide lays a
 // noticeably fatter trail than a held note sitting in place.
-export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = 0, slide = false) {
+// `shimmer` is set when the pitch is wobbling in place (vibrato). Instead of
+// smearing the note sideways chasing the wobble, the caller holds the note's
+// center and we render a slightly larger, softer, grainier bloom — so vibrato
+// reads as a living shimmer at the note's home rather than a sideways jitter.
+export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = 0, slide = false, shimmer = false) {
   const { width, height } = dims;
   const minDim = Math.min(width, height);
   const { e } = intensity(frame.rms);
   const loud = loudnessOf(frame.rms);
   const p = pitchToPoint(midiFloat, width, height);
   const color = inkColor(hue, vibrancy);
-  const fat = slide ? 2.1 : 1; // slides/bends paint thicker than a still note
+  const fat = slide ? 2.1 : shimmer ? 1.3 : 1; // slides thick; vibrato a touch fuller
   return {
     x: p.x,
     y: p.y,
@@ -171,10 +175,10 @@ export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = 0, slide 
     s: color.s,
     l: color.l,
     radius: minDim * (0.026 + loud * 0.05) * fat,
-    alpha: (0.05 + e * 0.1) * (slide ? 1.3 : 1),
+    alpha: (0.05 + e * 0.1) * (slide ? 1.3 : shimmer ? 1.15 : 1),
     loud,
-    edge: 0.45,
-    grain: clamp(frame.flatness || 0, 0, 1),
+    edge: shimmer ? 0.6 : 0.45,
+    grain: clamp((frame.flatness || 0) + (shimmer ? 0.35 : 0), 0, 1),
     seed: 0,
   };
 }

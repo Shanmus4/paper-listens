@@ -172,7 +172,7 @@ function paintEvent(ev, nowMs, instant) {
       lastDecision = `single ${lastPaintedLabel}`;
       updateHud(ev.frame);
     }
-    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.hue, !!ev.dir);
+    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.hue, !!ev.dir, !!ev.shimmer);
     spec.restrike = !!ev.restrike;
     if (instant) renderer.bake(spec);
     else renderer.addBlot(spec, nowMs);
@@ -230,6 +230,8 @@ const micVoiced = makeVoicedGate({ silenceRms: 0.0012, clarityLo: 0.35, clarityH
 let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
 let liveHue = 0; // time-derived color (0..360) held for the current note
 let micPoly = null; // polyphonic pluck detector (built lazily once we know the rate)
+let vibReversals = 0; // decaying count of pitch-direction flips -> detects vibrato
+let vibLastSign = 0;
 
 const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
 const midiToNote = (m) => {
@@ -276,6 +278,7 @@ function paintLive(f, now) {
   const m = midiOf(f.pitchHz);
   let dir = false; // becomes true when the pitch is moving (a slide -> thicker trail)
   let fresh = false; // true only on the first frame of a new note
+  let shimmer = false; // true when the pitch is wobbling in place (vibrato)
   if (liveMidi == null) {
     // A voiced tone with no detected pluck (e.g. a bowed/sustained note): start
     // it from the mono pitch.
@@ -287,10 +290,19 @@ function paintLive(f, now) {
     // real slide/vibrato). A far jump is usually the loud bass stealing the
     // detector — ignore it and hold the note we're sustaining.
     const dm = m - liveMidi;
-    liveMidi += dm * 0.5;
-    if (Math.abs(dm) > 0.04) dir = true;
+    const sign = dm > 0.02 ? 1 : dm < -0.02 ? -1 : 0;
+    if (sign !== 0 && sign !== vibLastSign) {
+      vibReversals = Math.min(4, vibReversals + 1); // the pitch turned around
+      vibLastSign = sign;
+    }
+    // Several small back-and-forth turns = vibrato: hold the center and shimmer
+    // in place instead of smearing sideways. A steady move is a slide (glide).
+    shimmer = vibReversals >= 2 && Math.abs(dm) < 0.7;
+    liveMidi += dm * (shimmer ? 0.12 : 0.5);
+    if (!shimmer && Math.abs(dm) > 0.04) dir = true;
   }
-  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveHue, dir);
+  vibReversals *= 0.9; // forget old turns so a brief wobble doesn't latch vibrato on
+  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveHue, dir, shimmer);
   spec.restrike = fresh; // sustain frames accumulate; the pluck path did the struck mark
   const n = freqToNote(f.pitchHz);
   lastPaintedLabel = `${PITCH_NAMES[n.pc]}${n.octave}`;
