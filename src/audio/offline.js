@@ -39,7 +39,7 @@ function toMono(audioBuffer) {
 // A stable per-event seed keeps a blot's shape identical every rebuild.
 const seedFor = (tSec) => (tSec * 9301 + 49297) % 1 || 0.5;
 
-// A chord onset: paint every detected tone (chroma-based, see chord.js).
+// A pluck onset: paint each freshly sounded note (from polypitch.js) at its spot.
 function chordEvent(tSec, notes, frame, vibrancy) {
   const cls = { type: "pitched", notes, centroidHz: frame.centroidHz };
   return { t: tSec, type: "pitched", cls, hue: timeHue(tSec), frame, vibrancy, seed: seedFor(tSec) };

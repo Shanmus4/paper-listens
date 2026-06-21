@@ -8,6 +8,9 @@
 
 import Meyda from "https://esm.sh/meyda@5";
 import { PitchDetector } from "https://esm.sh/pitchy@4";
+import { createMagFFT } from "./fft.js";
+
+const POLY_SIZE = 4096; // high-res window for polyphonic pluck detection
 
 // 1024 samples ≈ 23ms per frame at 44.1kHz (~43 frames/sec). Good balance:
 // fine enough for responsive onsets, coarse enough for stable chroma.
@@ -46,6 +49,9 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
   pitchNode.fftSize = PITCH_SIZE;
   sourceNode.connect(pitchNode);
   const pitchBuf = new Float32Array(pitchNode.fftSize);
+  // Own FFT for the high-res magnitude spectrum the polyphonic detector needs.
+  // Computed from the last POLY_SIZE samples of the same time-domain tap.
+  const polyFFT = createMagFFT(POLY_SIZE);
 
   const analyzer = Meyda.createMeydaAnalyzer({
     audioContext,
@@ -73,6 +79,9 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
       const pitchHz = p || 0;
       const clarity = c || 0;
 
+      // High-res magnitude spectrum (last POLY_SIZE samples) for poly detection.
+      const spectrumHi = polyFFT.mag(pitchBuf.subarray(pitchBuf.length - POLY_SIZE));
+
       onFrame({
         rms: features.rms || 0,
         // Meyda returns the centroid as an FFT bin index; convert to Hz so
@@ -84,6 +93,7 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
         pitchHz,
         clarity,
         flux,
+        spectrumHi,
         sampleRate: audioContext.sampleRate,
       });
     },
