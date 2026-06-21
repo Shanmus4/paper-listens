@@ -11,6 +11,7 @@ import { createOnsetDetector } from "./audio/onset.js";
 import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
 import { mapPitched, mapPercussive, PITCH_NAMES } from "./visual/synesthesia.js";
+import { freqToNote } from "./audio/notes.js";
 import { seededRng } from "./visual/rng.js";
 import { createRecorder } from "./ui/record.js";
 
@@ -177,10 +178,20 @@ function paintToTime(t, instant, nowMs = performance.now()) {
   if (painted) fadeHeadline();
 }
 
-// ---- Onset -> classify -> paint, classifying from the SUSTAIN not the attack.
-const SETTLE_FRAMES = 2; // wait for the pitch window to fill with the new note
-const CLASSIFY_FRAMES = 5; // sustain frames gathered after an attack (settle + a few)
-let pending = null;
+// ---- Live mic: continuous, tuner-style note tracking ----
+// A guitar tuner reads pitch every frame and shows the note the instant it
+// stabilizes — it does not wait for, or average over, the noisy pluck attack.
+// We do the same: each frame, if there is a clear, in-range pitch held for a
+// couple of frames, paint that note. Replaying the same note (a fresh attack,
+// or after a gap of silence) paints it again. A loud noisy attack with no clear
+// pitch paints as percussion. This replaced the old onset->average path, which
+// sampled pitch during the attack transient and often caught the previous note.
+const VOICE_CLARITY = 0.88; // clarity at/above this is a trustworthy pitch (real mics are noisier than clean tones)
+const CONFIRM_FRAMES = 2; // frames a pitch must hold before it paints
+const SILENCE_RMS = 0.012; // below this the input counts as silent
+let heldMidi = -1; // the pitch currently being held
+let heldFrames = 0; // how many consecutive frames it has held
+let emittedMidi = -1; // the last note painted, so a sustain doesn't repeat it
 
 function onAudioFrame(f) {
   levelMeter.push(f.rms);
@@ -190,60 +201,52 @@ function onAudioFrame(f) {
   const now = performance.now();
   const onset = onsetDetector.process(f.flux, f.rms, now);
 
-  if (pending) {
-    pending.count++;
-    for (let i = 0; i < 12; i++) pending.chroma[i] += f.chroma[i];
-    pending.centroidSum += f.centroidHz;
-    pending.flatSum += f.flatness || 0;
-    pending.rmsMax = Math.max(pending.rmsMax, f.rms);
-    // Only trust pitch once the window has filled with the NEW note; the attack
-    // frame and the first frames still hold the previous sound.
-    if (pending.count > SETTLE_FRAMES && (f.clarity || 0) > pending.bestClarity) {
-      pending.bestClarity = f.clarity;
-      pending.bestPitch = f.pitchHz;
-    }
-    if (pending.count >= CLASSIFY_FRAMES) finalizeOnset(now);
+  // Silence resets the tracker so the next note — even the same one — repaints.
+  if (f.rms < SILENCE_RMS) {
+    heldMidi = -1;
+    heldFrames = 0;
+    emittedMidi = -1;
     return;
   }
 
-  if (onset) {
-    pending = {
-      count: 0,
-      chroma: new Array(12).fill(0),
-      centroidSum: 0,
-      flatSum: 0,
-      rmsMax: f.rms,
-      bestClarity: 0, // seeded fresh; the attack frame's pitch is the old note
-      bestPitch: 0,
-    };
+  const voiced = (f.clarity || 0) >= VOICE_CLARITY && f.pitchHz >= 40 && f.pitchHz <= 2500;
+  if (voiced) {
+    const { pc, octave, midi } = freqToNote(f.pitchHz);
+    if (midi === heldMidi) heldFrames++;
+    else {
+      heldMidi = midi;
+      heldFrames = 1;
+    }
+    // A fresh pluck of the note already on screen should paint it again.
+    if (onset && midi === emittedMidi) emittedMidi = -1;
+    if (heldFrames >= CONFIRM_FRAMES && midi !== emittedMidi) {
+      emittedMidi = midi;
+      paintNote(pc, octave, f, now);
+    }
+  } else {
+    heldMidi = -1;
+    heldFrames = 0;
+    // No clear pitch, but a loud noisy attack -> percussion splatter.
+    if (onset) {
+      const cls = classifyOnset(f);
+      if (cls.type === "percussive") {
+        showDetection(cls, f);
+        renderer.addSplat(mapPercussive(cls, f, renderer.dims()), now);
+        fadeHeadline();
+      }
+    }
   }
 }
 
-function finalizeOnset(now) {
-  const p = pending;
-  pending = null;
-  const n = p.count || 1;
-  const frame = {
-    rms: p.rmsMax,
-    centroidHz: p.centroidSum / n,
-    flatness: p.flatSum / n,
-    clarity: p.bestClarity,
-    pitchHz: p.bestPitch,
-    chroma: p.chroma.map((v) => v / n),
-  };
-
-  const cls = classifyOnset(frame);
-  if (DEBUG) console.log(`[onset] ${cls.type}`, cls.diag);
+// Paint one confirmed monophonic note.
+function paintNote(pc, octave, frame, now) {
+  const cls = { type: "pitched", notes: [{ pc, octave, energy: 1 }], centroidHz: frame.centroidHz };
+  if (DEBUG) console.log(`[note] ${PITCH_NAMES[pc]}${octave}`, Math.round(frame.pitchHz) + "Hz");
   showDetection(cls, frame);
-
   const dims = renderer.dims();
-  if (cls.type === "pitched") {
-    for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
-      attachMotion(blot);
-      renderer.addBlot(blot, now);
-    }
-  } else {
-    renderer.addSplat(mapPercussive(cls, frame, dims), now);
+  for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
+    attachMotion(blot);
+    renderer.addBlot(blot, now);
   }
   fadeHeadline();
 }
