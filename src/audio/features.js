@@ -12,6 +12,11 @@ import { PitchDetector } from "https://esm.sh/pitchy@4";
 // 1024 samples ≈ 23ms per frame at 44.1kHz (~43 frames/sec). Good balance:
 // fine enough for responsive onsets, coarse enough for stable chroma.
 const BUFFER_SIZE = 1024;
+// Pitch needs a much longer window than onsets: ~93ms gives a low note enough
+// cycles to lock its true fundamental (a short window octave-errors and reads
+// low clarity, which is what scattered one sung note into several). We keep a
+// rolling window of the recent samples and run the detector over all of it.
+const PITCH_SIZE = 4096;
 
 const FEATURE_EXTRACTORS = [
   "rms",
@@ -26,8 +31,9 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
   let prevSpectrum = null;
   // McLeod pitch detector: gives a fundamental frequency + a 0..1 clarity that
   // is high for clear single pitches and low for noise/percussion.
-  const pitchDetector = PitchDetector.forFloat32Array(BUFFER_SIZE);
+  const pitchDetector = PitchDetector.forFloat32Array(PITCH_SIZE);
   pitchDetector.minVolumeDecibels = -45; // ignore near-silence
+  const pitchRing = new Float32Array(PITCH_SIZE); // rolling window of recent audio
 
   const analyzer = Meyda.createMeydaAnalyzer({
     audioContext,
@@ -53,7 +59,10 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
       let pitchHz = 0;
       let clarity = 0;
       if (features.buffer) {
-        const [p, c] = pitchDetector.findPitch(features.buffer, audioContext.sampleRate);
+        // Slide the newest frame into the rolling window and detect over it all.
+        pitchRing.copyWithin(0, BUFFER_SIZE);
+        pitchRing.set(features.buffer, PITCH_SIZE - BUFFER_SIZE);
+        const [p, c] = pitchDetector.findPitch(pitchRing, audioContext.sampleRate);
         pitchHz = p || 0;
         clarity = c || 0;
       }

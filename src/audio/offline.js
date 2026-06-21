@@ -14,6 +14,7 @@ import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
+const PITCH_SIZE = 4096; // longer pitch window (matches features.js): locks low notes
 const CLASSIFY_FRAMES = 3; // sustain frames gathered after an attack
 
 const FEATURES = ["rms", "spectralCentroid", "spectralFlatness", "chroma", "amplitudeSpectrum"];
@@ -57,8 +58,9 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
 
   const onset = createOnsetDetector({ sensitivity });
   const mode = createModeTracker();
-  const detector = PitchDetector.forFloat32Array(BUFFER_SIZE);
+  const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
+  const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
 
   const events = [];
   // A coarse loudness envelope (one value per analysis frame) so the level
@@ -87,7 +89,14 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     }
     prevSpectrum = spectrum;
 
-    const [p, c] = detector.findPitch(chunk, sr);
+    // Pitch over a longer trailing window ending at this frame (zero-padded at
+    // the very start of the song). Matches the live analyzer's rolling window.
+    const pend = start + BUFFER_SIZE;
+    const pstart = pend - PITCH_SIZE;
+    pitchChunk.fill(0);
+    const from = Math.max(0, pstart);
+    pitchChunk.set(signal.subarray(from, pend), from - pstart);
+    const [p, c] = detector.findPitch(pitchChunk, sr);
     const frame = {
       rms: feat.rms || 0,
       centroidHz: ((feat.spectralCentroid || 0) * sr) / BUFFER_SIZE,
