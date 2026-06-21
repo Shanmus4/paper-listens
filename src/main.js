@@ -27,10 +27,13 @@ const recorder = createRecorder(paperEl);
 
 const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 
-// Live detection readout (local dev only): shows what the analyzer thinks you
-// just played, so mic accuracy can be checked at a glance without the console.
+// Live readout (local dev only): updates EVERY frame with the raw pitch, clarity
+// and rms the analyzer sees, plus the last note painted. This makes it obvious
+// when the input sits below a gate (e.g. clarity under the voiced threshold), so
+// the thresholds can be dialed to your mic instead of guessed.
 let hudEl = null;
-function showDetection(cls, frame) {
+let lastPaintedLabel = "-";
+function updateHud(f) {
   if (!DEBUG) return;
   if (!hudEl) {
     hudEl = document.createElement("div");
@@ -39,14 +42,17 @@ function showDetection(cls, frame) {
       "background:rgba(0,0,0,.72);color:#fff;padding:8px 11px;border-radius:8px;white-space:pre;pointer-events:none";
     document.body.appendChild(hudEl);
   }
-  const label =
-    cls.type === "pitched"
-      ? cls.notes.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join("  ")
-      : `drum: ${cls.drum}`;
+  const hz = f.pitchHz || 0;
+  const inRange = hz >= 40 && hz <= 2500;
+  let note = "--";
+  if (inRange) {
+    const n = freqToNote(hz);
+    note = `${PITCH_NAMES[n.pc]}${n.octave}`;
+  }
   hudEl.textContent =
-    `heard: ${label}\n` +
-    `pitch ${Math.round(frame.pitchHz)}Hz   clarity ${(frame.clarity || 0).toFixed(2)}\n` +
-    `notes ${cls.type === "pitched" ? cls.notes.length : 0}   centroid ${Math.round(frame.centroidHz)}Hz`;
+    `rms ${(f.rms || 0).toFixed(4)}    clarity ${(f.clarity || 0).toFixed(2)}\n` +
+    `pitch ${Math.round(hz)}Hz  (${note})\n` +
+    `last painted: ${lastPaintedLabel}`;
 }
 
 // Keep the paint surface and the grid overlay sized to the window.
@@ -186,9 +192,9 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // or after a gap of silence) paints it again. A loud noisy attack with no clear
 // pitch paints as percussion. This replaced the old onset->average path, which
 // sampled pitch during the attack transient and often caught the previous note.
-const VOICE_CLARITY = 0.88; // clarity at/above this is a trustworthy pitch (real mics are noisier than clean tones)
+const VOICE_CLARITY = 0.8; // clarity at/above this is a trustworthy pitch (real mics are noisier than clean tones)
 const CONFIRM_FRAMES = 2; // frames a pitch must hold before it paints
-const SILENCE_RMS = 0.012; // below this the input counts as silent
+const SILENCE_RMS = 0.004; // below this the input counts as silent
 let heldMidi = -1; // the pitch currently being held
 let heldFrames = 0; // how many consecutive frames it has held
 let emittedMidi = -1; // the last note painted, so a sustain doesn't repeat it
@@ -197,6 +203,7 @@ function onAudioFrame(f) {
   levelMeter.push(f.rms);
   modeTracker.update(f.chroma, f.rms);
   modeTracker.evaluate();
+  updateHud(f); // raw readout every frame, even when nothing paints
 
   const now = performance.now();
   const onset = onsetDetector.process(f.flux, f.rms, now);
@@ -230,7 +237,7 @@ function onAudioFrame(f) {
     if (onset) {
       const cls = classifyOnset(f);
       if (cls.type === "percussive") {
-        showDetection(cls, f);
+        lastPaintedLabel = `drum:${cls.drum}`;
         renderer.addSplat(mapPercussive(cls, f, renderer.dims()), now);
         fadeHeadline();
       }
@@ -241,8 +248,8 @@ function onAudioFrame(f) {
 // Paint one confirmed monophonic note.
 function paintNote(pc, octave, frame, now) {
   const cls = { type: "pitched", notes: [{ pc, octave, energy: 1 }], centroidHz: frame.centroidHz };
-  if (DEBUG) console.log(`[note] ${PITCH_NAMES[pc]}${octave}`, Math.round(frame.pitchHz) + "Hz");
-  showDetection(cls, frame);
+  lastPaintedLabel = `${PITCH_NAMES[pc]}${octave}`;
+  if (DEBUG) console.log(`[note] ${lastPaintedLabel}`, Math.round(frame.pitchHz) + "Hz");
   const dims = renderer.dims();
   for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims)) {
     attachMotion(blot);
@@ -262,6 +269,7 @@ function clearCanvas() {
   renderer.clear();
   lastAnchor = null; // a fresh sheet restarts the melodic spread chain
   micSimT = 0; // and the mic sim clock, to match the reset fluid field
+  resetTracker();
   firstPaint = false;
   headline.classList.remove("faded");
 }
@@ -282,9 +290,16 @@ function teardownSource() {
   renderedT = 0;
   scrubbing = false;
   renderer.purge();
-  pending = null;
+  resetTracker();
   onsetDetector = createOnsetDetector({ sensitivity });
   modeTracker = createModeTracker();
+}
+
+// Reset the live monophonic tracker (new source / fresh sheet).
+function resetTracker() {
+  heldMidi = -1;
+  heldFrames = 0;
+  emittedMidi = -1;
 }
 
 async function startMic() {
