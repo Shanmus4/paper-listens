@@ -12,11 +12,10 @@ import { PitchDetector } from "https://esm.sh/pitchy@4";
 import { createOnsetDetector } from "./onset.js";
 import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
+import { createNoteTracker } from "./tracker.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
 const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
-const SETTLE_FRAMES = 2; // frames to wait after an attack before trusting pitch
-const CLASSIFY_FRAMES = 5; // sustain frames gathered after an attack (settle + a few)
 
 const FEATURES = ["rms", "spectralCentroid", "spectralFlatness", "chroma", "amplitudeSpectrum"];
 
@@ -33,20 +32,15 @@ function toMono(audioBuffer) {
   return out;
 }
 
-function finalize(p, vibrancy) {
-  const n = p.count || 1;
-  const frame = {
-    rms: p.rmsMax,
-    centroidHz: p.centroidSum / n,
-    flatness: p.flatSum / n,
-    clarity: p.bestClarity,
-    pitchHz: p.bestPitch,
-    chroma: p.chroma.map((v) => v / n),
-  };
-  const cls = classifyOnset(frame);
-  // A stable per-event seed keeps a blot's shape identical every time the
-  // painting is rebuilt (e.g. when seeking backwards).
-  return { t: p.tSec, type: cls.type, cls, frame, vibrancy, seed: (p.tSec * 9301 + 49297) % 1 || 0.5 };
+// A stable per-event seed keeps a blot's shape identical every rebuild.
+const seedFor = (tSec) => (tSec * 9301 + 49297) % 1 || 0.5;
+
+function pitchedEvent(tSec, pc, octave, frame, vibrancy) {
+  const cls = { type: "pitched", notes: [{ pc, octave, energy: 1 }], centroidHz: frame.centroidHz };
+  return { t: tSec, type: "pitched", cls, frame, vibrancy, seed: seedFor(tSec) };
+}
+function percEvent(tSec, cls, frame, vibrancy) {
+  return { t: tSec, type: "percussive", cls, frame, vibrancy, seed: seedFor(tSec) };
 }
 
 // Returns { duration, events } where events are sorted by time (seconds).
@@ -59,6 +53,7 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
 
   const onset = createOnsetDetector({ sensitivity });
   const mode = createModeTracker();
+  const tracker = createNoteTracker(); // same tuner-style tracking as the live mic
   const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
   const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
@@ -70,7 +65,6 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   const envStep = BUFFER_SIZE / sr; // seconds between envelope samples
   const chunk = new Float32Array(BUFFER_SIZE);
   let prevSpectrum = null;
-  let pending = null;
 
   const nFrames = Math.floor(signal.length / BUFFER_SIZE);
   for (let fi = 0; fi < nFrames; fi++) {
@@ -115,39 +109,17 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     mode.evaluate();
     const on = onset.process(frame.flux, frame.rms, tSec * 1000);
 
-    if (pending) {
-      pending.count++;
-      for (let i = 0; i < 12; i++) pending.chroma[i] += frame.chroma[i];
-      pending.centroidSum += frame.centroidHz;
-      pending.flatSum += frame.flatness || 0;
-      pending.rmsMax = Math.max(pending.rmsMax, frame.rms);
-      // Only trust pitch once the window has filled with the NEW note (the attack
-      // frame and the first frames still hold the previous sound).
-      if (pending.count > SETTLE_FRAMES && (frame.clarity || 0) > pending.bestClarity) {
-        pending.bestClarity = frame.clarity;
-        pending.bestPitch = frame.pitchHz;
-      }
-      if (pending.count >= CLASSIFY_FRAMES) {
-        events.push(finalize(pending, mode.getVibrancy()));
-        pending = null;
-      }
-      continue;
-    }
-
-    if (on) {
-      pending = {
-        count: 0,
-        chroma: new Array(12).fill(0),
-        centroidSum: 0,
-        flatSum: 0,
-        rmsMax: frame.rms,
-        bestClarity: 0, // seeded fresh; the attack frame's pitch is the old note
-        bestPitch: 0,
-        tSec,
-      };
+    // Same continuous tracking as the live mic: a clear stable pitch becomes one
+    // note; a noisy pitchless attack may be percussion; garbage pitch paints
+    // nothing (no invented chords).
+    const r = tracker.process(frame, on);
+    if (r && r.type === "note") {
+      events.push(pitchedEvent(tSec, r.pc, r.octave, frame, mode.getVibrancy()));
+    } else if (r && r.type === "perc") {
+      const cls = classifyOnset(frame);
+      if (cls.type === "percussive") events.push(percEvent(tSec, cls, frame, mode.getVibrancy()));
     }
   }
-  if (pending) events.push(finalize(pending, mode.getVibrancy()));
 
   return { duration: audioBuffer.duration, events, env, envStep };
 }

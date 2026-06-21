@@ -12,6 +12,7 @@ import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
 import { mapPitched, mapPercussive, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
+import { createNoteTracker } from "./audio/tracker.js";
 import { seededRng } from "./visual/rng.js";
 import { createRecorder } from "./ui/record.js";
 
@@ -152,6 +153,13 @@ function paintEvent(ev, nowMs, instant) {
   const dims = renderer.dims();
   const rng = seededRng(ev.seed);
   if (ev.type === "pitched") {
+    // Drive the live readout during playback too (skip seek rebuilds so it
+    // doesn't flicker through every event at once).
+    if (!instant) {
+      const ns = ev.cls.notes || [];
+      lastPaintedLabel = ns.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join(" ");
+      updateHud(ev.frame);
+    }
     for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, rng)) {
       attachMotion(blot);
       if (instant) renderer.bake(blot);
@@ -185,19 +193,11 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 }
 
 // ---- Live mic: continuous, tuner-style note tracking ----
-// A guitar tuner reads pitch every frame and shows the note the instant it
-// stabilizes — it does not wait for, or average over, the noisy pluck attack.
-// We do the same: each frame, if there is a clear, in-range pitch held for a
-// couple of frames, paint that note. Replaying the same note (a fresh attack,
-// or after a gap of silence) paints it again. A loud noisy attack with no clear
-// pitch paints as percussion. This replaced the old onset->average path, which
-// sampled pitch during the attack transient and often caught the previous note.
-const VOICE_CLARITY = 0.8; // clarity at/above this is a trustworthy pitch (real mics are noisier than clean tones)
-const CONFIRM_FRAMES = 2; // frames a pitch must hold before it paints
-const SILENCE_RMS = 0.004; // below this the input counts as silent
-let heldMidi = -1; // the pitch currently being held
-let heldFrames = 0; // how many consecutive frames it has held
-let emittedMidi = -1; // the last note painted, so a sustain doesn't repeat it
+// Frames flow through the shared note tracker (audio/tracker.js), the same one
+// the offline file analysis uses, so mic and upload behave identically. The
+// tracker reads pitch every frame and reports a note the instant a clear pitch
+// stabilizes — it never averages the noisy attack and never invents a chord.
+const micTracker = createNoteTracker();
 
 function onAudioFrame(f) {
   levelMeter.push(f.rms);
@@ -207,40 +207,18 @@ function onAudioFrame(f) {
 
   const now = performance.now();
   const onset = onsetDetector.process(f.flux, f.rms, now);
+  const r = micTracker.process(f, onset);
+  if (!r) return;
 
-  // Silence resets the tracker so the next note — even the same one — repaints.
-  if (f.rms < SILENCE_RMS) {
-    heldMidi = -1;
-    heldFrames = 0;
-    emittedMidi = -1;
-    return;
-  }
-
-  const voiced = (f.clarity || 0) >= VOICE_CLARITY && f.pitchHz >= 40 && f.pitchHz <= 2500;
-  if (voiced) {
-    const { pc, octave, midi } = freqToNote(f.pitchHz);
-    if (midi === heldMidi) heldFrames++;
-    else {
-      heldMidi = midi;
-      heldFrames = 1;
-    }
-    // A fresh pluck of the note already on screen should paint it again.
-    if (onset && midi === emittedMidi) emittedMidi = -1;
-    if (heldFrames >= CONFIRM_FRAMES && midi !== emittedMidi) {
-      emittedMidi = midi;
-      paintNote(pc, octave, f, now);
-    }
-  } else {
-    heldMidi = -1;
-    heldFrames = 0;
-    // No clear pitch, but a loud noisy attack -> percussion splatter.
-    if (onset) {
-      const cls = classifyOnset(f);
-      if (cls.type === "percussive") {
-        lastPaintedLabel = `drum:${cls.drum}`;
-        renderer.addSplat(mapPercussive(cls, f, renderer.dims()), now);
-        fadeHeadline();
-      }
+  if (r.type === "note") {
+    paintNote(r.pc, r.octave, f, now);
+  } else if (r.type === "perc") {
+    // A noisy attack with no clear pitch -> percussion splatter (drums only).
+    const cls = classifyOnset(f);
+    if (cls.type === "percussive") {
+      lastPaintedLabel = `drum:${cls.drum}`;
+      renderer.addSplat(mapPercussive(cls, f, renderer.dims()), now);
+      fadeHeadline();
     }
   }
 }
@@ -297,9 +275,7 @@ function teardownSource() {
 
 // Reset the live monophonic tracker (new source / fresh sheet).
 function resetTracker() {
-  heldMidi = -1;
-  heldFrames = 0;
-  emittedMidi = -1;
+  micTracker.reset();
 }
 
 async function startMic() {
