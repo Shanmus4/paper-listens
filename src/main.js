@@ -10,7 +10,7 @@ import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { classifyOnset } from "./audio/classify.js";
 import { createModeTracker } from "./audio/mode.js";
-import { mapPitched, mapPercussive } from "./visual/synesthesia.js";
+import { mapPitched, mapPercussive, PITCH_NAMES } from "./visual/synesthesia.js";
 import { seededRng } from "./visual/rng.js";
 import { createRecorder } from "./ui/record.js";
 
@@ -25,6 +25,28 @@ const micHint = document.getElementById("micHint");
 const recorder = createRecorder(paperEl);
 
 const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+
+// Live detection readout (local dev only): shows what the analyzer thinks you
+// just played, so mic accuracy can be checked at a glance without the console.
+let hudEl = null;
+function showDetection(cls, frame) {
+  if (!DEBUG) return;
+  if (!hudEl) {
+    hudEl = document.createElement("div");
+    hudEl.style.cssText =
+      "position:fixed;left:12px;bottom:12px;z-index:9;font:13px ui-monospace,monospace;" +
+      "background:rgba(0,0,0,.72);color:#fff;padding:8px 11px;border-radius:8px;white-space:pre;pointer-events:none";
+    document.body.appendChild(hudEl);
+  }
+  const label =
+    cls.type === "pitched"
+      ? cls.notes.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join("  ")
+      : `drum: ${cls.drum}`;
+  hudEl.textContent =
+    `heard: ${label}\n` +
+    `pitch ${Math.round(frame.pitchHz)}Hz   clarity ${(frame.clarity || 0).toFixed(2)}\n` +
+    `notes ${cls.type === "pitched" ? cls.notes.length : 0}   centroid ${Math.round(frame.centroidHz)}Hz`;
+}
 
 // Keep the paint surface and the grid overlay sized to the window.
 window.addEventListener("resize", () => renderer.resize());
@@ -156,7 +178,8 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 }
 
 // ---- Onset -> classify -> paint, classifying from the SUSTAIN not the attack.
-const CLASSIFY_FRAMES = 3;
+const SETTLE_FRAMES = 2; // wait for the pitch window to fill with the new note
+const CLASSIFY_FRAMES = 5; // sustain frames gathered after an attack (settle + a few)
 let pending = null;
 
 function onAudioFrame(f) {
@@ -168,15 +191,18 @@ function onAudioFrame(f) {
   const onset = onsetDetector.process(f.flux, f.rms, now);
 
   if (pending) {
+    pending.count++;
     for (let i = 0; i < 12; i++) pending.chroma[i] += f.chroma[i];
     pending.centroidSum += f.centroidHz;
     pending.flatSum += f.flatness || 0;
     pending.rmsMax = Math.max(pending.rmsMax, f.rms);
-    if ((f.clarity || 0) > pending.bestClarity) {
+    // Only trust pitch once the window has filled with the NEW note; the attack
+    // frame and the first frames still hold the previous sound.
+    if (pending.count > SETTLE_FRAMES && (f.clarity || 0) > pending.bestClarity) {
       pending.bestClarity = f.clarity;
       pending.bestPitch = f.pitchHz;
     }
-    if (++pending.count >= CLASSIFY_FRAMES) finalizeOnset(now);
+    if (pending.count >= CLASSIFY_FRAMES) finalizeOnset(now);
     return;
   }
 
@@ -187,8 +213,8 @@ function onAudioFrame(f) {
       centroidSum: 0,
       flatSum: 0,
       rmsMax: f.rms,
-      bestClarity: f.clarity || 0,
-      bestPitch: f.pitchHz || 0,
+      bestClarity: 0, // seeded fresh; the attack frame's pitch is the old note
+      bestPitch: 0,
     };
   }
 }
@@ -208,6 +234,7 @@ function finalizeOnset(now) {
 
   const cls = classifyOnset(frame);
   if (DEBUG) console.log(`[onset] ${cls.type}`, cls.diag);
+  showDetection(cls, frame);
 
   const dims = renderer.dims();
   if (cls.type === "pitched") {

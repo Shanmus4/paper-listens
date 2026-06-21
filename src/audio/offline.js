@@ -14,8 +14,9 @@ import { createModeTracker } from "./mode.js";
 import { classifyOnset } from "./classify.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
-const PITCH_SIZE = 4096; // longer pitch window (matches features.js): locks low notes
-const CLASSIFY_FRAMES = 3; // sustain frames gathered after an attack
+const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
+const SETTLE_FRAMES = 2; // frames to wait after an attack before trusting pitch
+const CLASSIFY_FRAMES = 5; // sustain frames gathered after an attack (settle + a few)
 
 const FEATURES = ["rms", "spectralCentroid", "spectralFlatness", "chroma", "amplitudeSpectrum"];
 
@@ -115,15 +116,18 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     const on = onset.process(frame.flux, frame.rms, tSec * 1000);
 
     if (pending) {
+      pending.count++;
       for (let i = 0; i < 12; i++) pending.chroma[i] += frame.chroma[i];
       pending.centroidSum += frame.centroidHz;
       pending.flatSum += frame.flatness || 0;
       pending.rmsMax = Math.max(pending.rmsMax, frame.rms);
-      if ((frame.clarity || 0) > pending.bestClarity) {
+      // Only trust pitch once the window has filled with the NEW note (the attack
+      // frame and the first frames still hold the previous sound).
+      if (pending.count > SETTLE_FRAMES && (frame.clarity || 0) > pending.bestClarity) {
         pending.bestClarity = frame.clarity;
         pending.bestPitch = frame.pitchHz;
       }
-      if (++pending.count >= CLASSIFY_FRAMES) {
+      if (pending.count >= CLASSIFY_FRAMES) {
         events.push(finalize(pending, mode.getVibrancy()));
         pending = null;
       }
@@ -137,8 +141,8 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
         centroidSum: 0,
         flatSum: 0,
         rmsMax: frame.rms,
-        bestClarity: frame.clarity || 0,
-        bestPitch: frame.pitchHz || 0,
+        bestClarity: 0, // seeded fresh; the attack frame's pitch is the old note
+        bestPitch: 0,
         tSec,
       };
     }

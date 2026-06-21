@@ -12,11 +12,10 @@ import { PitchDetector } from "https://esm.sh/pitchy@4";
 // 1024 samples ≈ 23ms per frame at 44.1kHz (~43 frames/sec). Good balance:
 // fine enough for responsive onsets, coarse enough for stable chroma.
 const BUFFER_SIZE = 1024;
-// Pitch needs a much longer window than onsets: ~93ms gives a low note enough
-// cycles to lock its true fundamental (a short window octave-errors and reads
-// low clarity, which is what scattered one sung note into several). We keep a
-// rolling window of the recent samples and run the detector over all of it.
-const PITCH_SIZE = 4096;
+// Pitch needs a longer window than onsets: ~46ms gives a low guitar note (E2,
+// 82Hz) ~4 cycles to lock its true fundamental, while staying short enough not
+// to lag fast playing. We keep a rolling window and detect over all of it.
+const PITCH_SIZE = 2048;
 
 const FEATURE_EXTRACTORS = [
   "rms",
