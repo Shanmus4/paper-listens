@@ -96,13 +96,17 @@ export function createPolyPitch({
           continue;
         }
         if (out.length >= maxNotes) break;
-        // A further note must be reasonably strong AND not sit at an overtone
-        // interval of one we already kept (octave, fifth, third, ... — the places
-        // a single string's own partials land). Strong + non-harmonic = a real
-        // separate voice (a melody note over a ringing bass); that is the case we
-        // want to catch without a single rich note exploding into a phantom chord.
+        // A further note must be a REAL separate voice, not a detection artifact.
+        // Three guards, all of which a single rich note's stray peaks fail:
+        //   1) it sits FAR from the lead either way (a high partial above, or a
+        //      spurious sub/low below) — real overlapping notes and chord tones
+        //      cluster within ~1.3 octaves of each other, so reject the wide ones;
+        //   2) it lands on an overtone interval of a kept note AND is weaker;
+        //   3) it isn't strong (a true simultaneous/overlapping note is loud in
+        //      the delta; a leftover partial is not).
+        const tooFar = Math.abs(n.midi - out[0].midi) > 16; // > ~1.3 octaves from the lead
         const overtone = out.some((k) => harmonicallyRelated(k.hz, n.hz) && n.energy < k.energy);
-        if (!overtone && n.energy >= 0.7) out.push(n);
+        if (!tooFar && !overtone && n.energy >= 0.7) out.push(n);
       }
     }
     for (let i = 0; i < nBins; i++) {

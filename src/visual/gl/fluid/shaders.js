@@ -213,20 +213,11 @@ precision highp float;
 in vec2 vUv;
 uniform sampler2D u_dye;
 uniform vec3 u_paper;
-uniform vec2 u_dyeTexel; // 1/dye width,height — for the smoothing tap offsets
 out vec4 frag;
-vec3 dyeAt(vec2 uv){ return max(texture(u_dye, uv).rgb, 0.0); }
 void main(){
-  // A small 9-tap gaussian over the dye softens the cell-scale faceting left by
-  // the coarser velocity grid, so blooms read as smooth ink rather than pixelated.
-  vec2 o = u_dyeTexel * 1.4;
-  vec3 A =
-    4.0 * dyeAt(vUv) +
-    2.0 * (dyeAt(vUv + vec2(o.x, 0.0)) + dyeAt(vUv - vec2(o.x, 0.0)) +
-           dyeAt(vUv + vec2(0.0, o.y)) + dyeAt(vUv - vec2(0.0, o.y))) +
-    1.0 * (dyeAt(vUv + o) + dyeAt(vUv - o) +
-           dyeAt(vUv + vec2(o.x, -o.y)) + dyeAt(vUv + vec2(-o.x, o.y)));
-  A /= 16.0;
+  // Sharp single sample (no blur). The higher dye resolution (DYE_RES) keeps the
+  // edges crisp on its own; a blur here read as too soft.
+  vec3 A = max(texture(u_dye, vUv).rgb, 0.0);
   const float A_MAX = 3.2;
   A = A_MAX * (1.0 - exp(-A / A_MAX));
   vec3 c = u_paper * exp(-A);

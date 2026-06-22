@@ -27,7 +27,7 @@ const DYE_RES = 1536; // longest side of the dye grid (higher = smoother, less p
 const PRESSURE_ITERS = 22; // Jacobi iterations per step (incompressibility)
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
 const VEL_DISSIPATION = 0.5; // how fast motion calms (higher = ink settles in place, no sweeping)
-const DYE_DISSIPATION = 0.07; // pigment fades very slowly so notes linger as a history/residue
+const DYE_DISSIPATION = 0.015; // pigment barely fades with time — notes persist as lasting history (replaying the same note dims it via the restrike fade, not time)
 const CURL_STRENGTH = 7.0; // vorticity confinement (lower = gentle drop, no big sweeping vortices)
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
@@ -225,7 +225,6 @@ export function createSolver(gl, canvas) {
   function display(paper, devW, devH) {
     gl.useProgram(P.display.program);
     gl.uniform2f(P.display.loc("u_texel"), texel[0], texel[1]);
-    gl.uniform2f(P.display.loc("u_dyeTexel"), 1 / dyeW, 1 / dyeH);
     tex(0, dye.read.tex, P.display, "u_dye");
     gl.uniform3f(P.display.loc("u_paper"), paper[0], paper[1], paper[2]);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
