@@ -20,8 +20,8 @@ const midiToHz = (m) => A4 * Math.pow(2, (m - 69) / 12);
 export function createPolyPitch({
   sampleRate,
   fftSize,
-  midiLo = 40, // E2, a guitar's low string
-  midiHi = 88, // E6, well above a singing voice
+  midiLo = 24, // C1 — the bottom of the grid (covers piano/bass, not just guitar)
+  midiHi = 107, // B7 — the top of the grid
   harmonics = 8,
   maxNotes = 3,
   relCut = 0.3, // a later note must be >= this fraction of the lead note's salience

@@ -252,15 +252,23 @@ function onAudioFrame(f) {
   if (!micPoly && f.spectrumHi) {
     micPoly = createPolyPitch({ sampleRate: f.sampleRate, fftSize: f.spectrumHi.length * 2 });
   }
-  // On a pluck, find the NEWLY sounded note (against the ringing background) and
-  // paint it at its own spot — so a fingerstyle pattern shows each note instead
-  // of collapsing onto the bass. The note also seeds the sustain below.
+  // Polyphonic detector: the few notes newly sounded on a pluck (chords, and a
+  // note plucked over a ringing one). Used unless the pitch is a clear single one.
   const plucked = micPoly && f.spectrumHi ? micPoly.pluck(f.spectrumHi, onset) : [];
-  if (onset && plucked.length) {
-    liveMidi = midiOf(plucked[0].hz);
-    liveHue = timeHue(micSimT);
-    paintNotes(plucked.map((p) => ({ ...midiToNote(p.midi), energy: p.energy })), f, now);
-    return;
+  if (onset) {
+    // A clear single pitch -> trust the accurate, octave-robust mono detector
+    // (same routing as the file path). Otherwise -> the polyphonic detector.
+    const monoMidi = f.pitchHz > 0 ? Math.round(midiOf(f.pitchHz)) : null;
+    const cleanSingle = monoMidi != null && f.clarity >= 0.9 && monoMidi >= 24 && monoMidi <= 107;
+    if (cleanSingle || plucked.length) {
+      const notes = cleanSingle
+        ? [{ ...midiToNote(monoMidi), energy: 1 }]
+        : plucked.map((p) => ({ ...midiToNote(p.midi), energy: p.energy }));
+      liveMidi = cleanSingle ? monoMidi : midiOf(plucked[0].hz);
+      liveHue = timeHue(micSimT);
+      paintNotes(notes, f, now);
+      return;
+    }
   }
 
   paintLive(f, now);

@@ -146,16 +146,27 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     const r = tracker.process(frame, on);
 
     // Update the polyphonic background every frame; on a pluck it returns the
-    // freshly sounded note — even over a still-ringing bass, which is what the
-    // mono detector gets wrong for fingerstyle.
+    // freshly sounded note(s) — used for chords and notes plucked over a ring.
     const plucked = poly.pluck(polySpec, on);
 
-    if (on && plucked.length) {
-      // Each pluck paints its own note at its own spot, and seeds the sustain so
-      // the note keeps ringing there until the next pluck.
-      strokeMidi = midiOf(plucked[0].hz);
+    // A clear single pitch (high mono clarity, in grid range): trust the MONO
+    // detector. It is octave-robust and full-range, where the harmonic-sum poly
+    // detector octave-slips on clean high/low notes (the piano run mapped wrong).
+    const monoMidi = frame.pitchHz > 0 ? Math.round(midiOf(frame.pitchHz)) : null;
+    const cleanSingle = monoMidi != null && frame.clarity >= 0.9 && monoMidi >= 24 && monoMidi <= 107;
+
+    if (on && (cleanSingle || plucked.length)) {
+      // Clean single note -> the accurate mono pitch. Otherwise (a chord, an
+      // overlap, a noisy moment) -> let the polyphonic detector name the few notes.
+      let notes;
+      if (cleanSingle) {
+        notes = [{ ...midiToNote(monoMidi), energy: 1 }];
+        strokeMidi = monoMidi;
+      } else {
+        notes = plucked.map((p) => ({ ...midiToNote(p.midi), energy: p.energy }));
+        strokeMidi = midiOf(plucked[0].hz);
+      }
       strokeHue = timeHue(tSec);
-      const notes = plucked.map((p) => ({ ...midiToNote(p.midi), energy: p.energy }));
       events.push(chordEvent(tSec, notes, frame, mode.getVibrancy()));
     } else if (voiced(frame) && strokeMidi != null) {
       // Between plucks: sustain the last plucked note in place so its bloom grows.
