@@ -22,19 +22,13 @@ import {
   DISPLAY_FS,
 } from "./shaders.js";
 
-// The velocity grid drives how the dye is carried. When it was much coarser than
-// the dye grid (320 vs 1024) the colour got advected in cell-sized steps, so
-// blooms looked faceted/pixelated on a wide screen. Raising it (and the dye grid)
-// smooths that out; the lower curl strength trims the high-frequency swirl noise
-// that also read as speckle. If fps dips below ~43, drop SIM_RES back to 448 or
-// lower PRESSURE_ITERS to ~18 (the pressure solve is the main cost).
-const SIM_RES = 384; // longest side of the velocity/pressure grid (cheap physics)
-const DYE_RES = 1536; // longest side of the dye grid (high, so blooms aren't blocky)
-const PRESSURE_ITERS = 20; // Jacobi iterations per step (incompressibility)
+const SIM_RES = 320; // longest side of the velocity/pressure grid (cheap physics)
+const DYE_RES = 1024; // longest side of the dye grid (high, so blooms aren't blocky)
+const PRESSURE_ITERS = 22; // Jacobi iterations per step (incompressibility)
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
 const VEL_DISSIPATION = 0.32; // how fast motion calms (higher = blooms settle, stay distinct)
-const DYE_DISSIPATION = 0.1; // pigment fades slowly so notes linger as history, but plateau lighter
-const CURL_STRENGTH = 9.0; // vorticity confinement (wispy tendrils; lower = less speckle)
+const DYE_DISSIPATION = 0.07; // pigment fades very slowly so notes linger as a history/residue
+const CURL_STRENGTH = 14.0; // vorticity confinement (wispy tendrils)
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
 function makeDouble(gl, w, h) {

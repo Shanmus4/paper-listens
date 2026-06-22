@@ -9,9 +9,10 @@ import { createAnalyzer } from "./audio/features.js";
 import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { createModeTracker } from "./audio/mode.js";
-import { mapPercussive, spectralSpec, washSpec, timeHue, PITCH_NAMES } from "./visual/synesthesia.js";
+import { mapPitched, mapPercussive, strokeSpec, timeHue, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
-import { createSpectralPainter } from "./audio/spectral.js";
+import { makeVoicedGate } from "./audio/tracker.js";
+import { createPolyPitch } from "./audio/polypitch.js";
 import { seededRng } from "./visual/rng.js";
 import { createRecorder } from "./ui/record.js";
 
@@ -162,29 +163,34 @@ requestAnimationFrame(frame);
 // (rebuilding the painting at a seek position).
 function paintEvent(ev, nowMs, instant) {
   const dims = renderer.dims();
-  if (ev.type === "spectral") {
-    // One analyzed frame of the song: paint every spectral peak at its pitch, plus
-    // a grey wash if the frame was noisy (drums). Colour is derived from the
-    // event's own time so a seek rebuilds the identical palette.
-    const hue = timeHue(ev.t);
-    const pts = ev.points || [];
+  const rng = seededRng(ev.seed);
+  if (ev.type === "stroke") {
+    // One continuous-stroke puff at a fractional pitch (sustain/slide path).
     if (!instant) {
-      lastPaintedLabel = pts[0] ? noteName(pts[0].midi) : ev.wash > 0.15 ? "wash" : "-";
-      lastDecision = `${pts.length} tones${ev.wash > 0.15 ? " + wash" : ""}`;
+      const midi = Math.round(ev.midi);
+      lastPaintedLabel = `${PITCH_NAMES[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
+      lastDecision = `single ${lastPaintedLabel}`;
       updateHud(ev.frame);
     }
-    for (const pt of pts) {
-      const spec = spectralSpec(pt.midi, pt.energy, ev.frame, dims, hue, ev.vibrancy);
-      if (instant) renderer.bake(spec);
-      else renderer.addBlot(spec, nowMs);
+    const spec = strokeSpec(ev.midi, ev.frame, dims, ev.vibrancy, ev.hue, !!ev.dir, !!ev.shimmer);
+    spec.restrike = !!ev.restrike;
+    if (instant) renderer.bake(spec);
+    else renderer.addBlot(spec, nowMs);
+  } else if (ev.type === "pitched") {
+    // Drive the live readout during playback too (skip seek rebuilds so it
+    // doesn't flicker through every event at once).
+    if (!instant) {
+      const ns = ev.cls.notes || [];
+      lastPaintedLabel = ns.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join(" ");
+      lastDecision = `chord ${lastPaintedLabel}`;
+      updateHud(ev.frame);
     }
-    if (ev.wash > 0.02) {
-      const w = washSpec(ev.wash, ev.frame, dims);
-      if (instant) renderer.bake(w);
-      else renderer.addBlot(w, nowMs);
+    for (const blot of mapPitched(ev.cls, ev.frame, ev.vibrancy, dims, ev.hue, rng)) {
+      if (instant) renderer.bake(blot);
+      else renderer.addBlot(blot, nowMs);
     }
-  } else if (ev.type === "percussive") {
-    const splat = mapPercussive(ev.cls, ev.frame, dims, seededRng(ev.seed));
+  } else {
+    const splat = mapPercussive(ev.cls, ev.frame, dims, rng);
     if (instant) renderer.bakeSplat(splat);
     else renderer.addSplat(splat, nowMs);
   }
@@ -210,18 +216,27 @@ function paintToTime(t, instant, nowMs = performance.now()) {
   if (painted) fadeHeadline();
 }
 
-// ---- Live mic: spectral painting ----
-// Every frame we read the magnitude spectrum and paint a mark wherever there is
-// energy (see audio/spectral.js), so voice, strings, piano and drums all leave
-// their own coloured marks at their real pitch — instead of one "winning" note,
-// which is what made a whistle scatter and a full song ignore everything but the
-// loudest instrument. Mic and upload share the exact same painter.
-let micSpectral = null; // built lazily once we know the sample rate / spectrum size
+// ---- Live mic: continuous, tuner-style note tracking ----
+// Frames flow through the shared note tracker (audio/tracker.js), the same one
+// the offline file analysis uses, so mic and upload behave identically. The
+// tracker reads pitch every frame and reports a note the instant a clear pitch
+// stabilizes — it never averages the noisy attack and never invents a chord.
+// Mic is noisier and quieter than a decoded file, so it gets more forgiving
+// floors. The clarity gate scales with pitch: low notes through a mic read
+// ~0.5 (measured F#1 = 0.53), so the low end is lenient (0.45); high notes must
+// be crisp (0.88) so high-frequency noise and harmonic mis-locks (e.g. F#6 at
+// clarity 0.46) are rejected. Confirm-frames still require a stable pitch.
+const micVoiced = makeVoicedGate({ silenceRms: 0.0012, clarityLo: 0.35, clarityHi: 0.8 });
+let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
+let liveHue = 0; // time-derived color (0..360) held for the current note
+let micPoly = null; // polyphonic pluck detector (built lazily once we know the rate)
+let vibReversals = 0; // decaying count of pitch-direction flips -> detects vibrato
+let vibLastSign = 0;
 
-// Fractional MIDI -> note name (e.g. 57.2 -> "A3"), for the live readout.
-const noteName = (midi) => {
-  const r = Math.round(midi);
-  return `${PITCH_NAMES[((r % 12) + 12) % 12]}${Math.floor(r / 12) - 1}`;
+const midiOf = (hz) => 69 + 12 * Math.log2(hz / 440);
+const midiToNote = (m) => {
+  const r = Math.round(m);
+  return { pc: ((r % 12) + 12) % 12, octave: Math.floor(r / 12) - 1 };
 };
 
 function onAudioFrame(f) {
@@ -230,22 +245,82 @@ function onAudioFrame(f) {
   modeTracker.evaluate();
   updateHud(f); // raw readout every frame, even when nothing paints
 
-  if (!f.spectrumHi) return;
-  if (!micSpectral) {
-    micSpectral = createSpectralPainter({ sampleRate: f.sampleRate, fftSize: f.spectrumHi.length * 2 });
-  }
-  const { points, wash } = micSpectral.analyze(f.spectrumHi, f);
-  if (!points.length && wash <= 0.02) return; // silence / room noise: paint nothing
-
   const now = performance.now();
-  const hue = timeHue(micSimT);
-  const dims = renderer.dims();
-  const vib = modeTracker.getVibrancy();
-  for (const pt of points) renderer.addBlot(spectralSpec(pt.midi, pt.energy, f, dims, hue, vib), now);
-  if (wash > 0.02) renderer.addBlot(washSpec(wash, f, dims), now);
+  const onset = onsetDetector.process(f.flux, f.rms, now);
 
-  lastPaintedLabel = points[0] ? noteName(points[0].midi) : "wash";
-  lastDecision = `${points.length} tones${wash > 0.15 ? " + wash" : ""}`;
+  // Build the polyphonic detector once we know the sample rate / spectrum size.
+  if (!micPoly && f.spectrumHi) {
+    micPoly = createPolyPitch({ sampleRate: f.sampleRate, fftSize: f.spectrumHi.length * 2 });
+  }
+  // On a pluck, find the NEWLY sounded note (against the ringing background) and
+  // paint it at its own spot — so a fingerstyle pattern shows each note instead
+  // of collapsing onto the bass. The note also seeds the sustain below.
+  const plucked = micPoly && f.spectrumHi ? micPoly.pluck(f.spectrumHi, onset) : [];
+  if (onset && plucked.length) {
+    liveMidi = midiOf(plucked[0].hz);
+    liveHue = timeHue(micSimT);
+    paintNotes(plucked.map((p) => ({ ...midiToNote(p.midi), energy: p.energy })), f, now);
+    return;
+  }
+
+  paintLive(f, now);
+}
+
+// Continuous painting between plucks: every voiced frame lays a small puff at the
+// note we're sustaining so its bloom GROWS in place. The pluck detector above
+// chooses notes; here we just hold the latest one (and follow gentle slides),
+// rather than chasing the mono pitch, which on guitar keeps snapping to the bass.
+function paintLive(f, now) {
+  if (!micVoiced(f)) {
+    liveMidi = null;
+    return;
+  }
+  const m = midiOf(f.pitchHz);
+  let dir = false; // becomes true when the pitch is moving (a slide -> thicker trail)
+  let fresh = false; // true only on the first frame of a new note
+  let shimmer = false; // true when the pitch is wobbling in place (vibrato)
+  if (liveMidi == null) {
+    // A voiced tone with no detected pluck (e.g. a bowed/sustained note): start
+    // it from the mono pitch.
+    liveMidi = m;
+    liveHue = timeHue(micSimT);
+    fresh = true;
+  } else if (Math.abs(m - liveMidi) <= 2) {
+    // Stay on the plucked note; follow the mono pitch only when it's CLOSE (a
+    // real slide/vibrato). A far jump is usually the loud bass stealing the
+    // detector — ignore it and hold the note we're sustaining.
+    const dm = m - liveMidi;
+    const sign = dm > 0.02 ? 1 : dm < -0.02 ? -1 : 0;
+    if (sign !== 0 && sign !== vibLastSign) {
+      vibReversals = Math.min(4, vibReversals + 1); // the pitch turned around
+      vibLastSign = sign;
+    }
+    // Several small back-and-forth turns = vibrato: hold the center and shimmer
+    // in place instead of smearing sideways. A steady move is a slide (glide).
+    shimmer = vibReversals >= 2 && Math.abs(dm) < 0.7;
+    liveMidi += dm * (shimmer ? 0.12 : 0.5);
+    if (!shimmer && Math.abs(dm) > 0.04) dir = true;
+  }
+  vibReversals *= 0.9; // forget old turns so a brief wobble doesn't latch vibrato on
+  const spec = strokeSpec(liveMidi, f, renderer.dims(), modeTracker.getVibrancy(), liveHue, dir, shimmer);
+  spec.restrike = fresh; // sustain frames accumulate; the pluck path did the struck mark
+  const n = freqToNote(f.pitchHz);
+  lastPaintedLabel = `${PITCH_NAMES[n.pc]}${n.octave}`;
+  lastDecision = `single ${lastPaintedLabel}`;
+  renderer.addBlot(spec, now);
+  fadeHeadline();
+}
+
+// Paint one or more notes (a single tracked note, or every tone of a chord).
+function paintNotes(notes, frame, now) {
+  const cls = { type: "pitched", notes, centroidHz: frame.centroidHz };
+  lastPaintedLabel = notes.map((n) => `${PITCH_NAMES[n.pc]}${n.octave}`).join(" ");
+  lastDecision = `${notes.length > 1 ? "chord" : "pluck"} ${lastPaintedLabel}`;
+  if (DEBUG) console.log(`[paint] ${lastPaintedLabel}`, Math.round(frame.pitchHz) + "Hz");
+  const dims = renderer.dims();
+  for (const blot of mapPitched(cls, frame, modeTracker.getVibrancy(), dims, timeHue(micSimT))) {
+    renderer.addBlot(blot, now);
+  }
   fadeHeadline();
 }
 
@@ -274,7 +349,7 @@ function teardownSource() {
   analyzer = null;
   source = null;
   player = null;
-  micSpectral = null; // rebuilt for the next source (sample rate may differ)
+  micPoly = null; // rebuilt for the next source (sample rate may differ)
   events = [];
   fileEnv = null;
   evtPtr = 0;
@@ -286,10 +361,11 @@ function teardownSource() {
   modeTracker = createModeTracker();
 }
 
-// Reset the live painter state (new source / fresh sheet). The spectral painter
-// keeps no cross-frame state (its histogram is rebuilt each frame), so there's
-// nothing to clear here; kept as a hook in case that changes.
-function resetTracker() {}
+// Reset the live painter state (new source / fresh sheet).
+function resetTracker() {
+  liveMidi = null;
+  micPoly?.reset(); // forget the ringing-background spectrum
+}
 
 async function startMic() {
   const changed = currentSource !== "mic";
