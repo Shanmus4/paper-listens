@@ -16,7 +16,8 @@ import { createSolver } from "./solver.js";
 const SIM_DT = 1 / 60; // fixed simulation timestep (s)
 const MAX_STEPS = 240; // cap per stepTo call so a big seek can't freeze the tab
 const DYE_STRENGTH = 1.5; // spec alpha -> dye absorbance (per-frame strokes accumulate). Kept at 1.5: raising it darkens/floods the ink (blur), which buries the jagged gooey tendrils. "More paint" is done via SPREAD (blot radius) in synesthesia.js, not density.
-const VEL_MAG = 102; // note impulse speed. Scaled up from the old 72 to track the finer SIM_RES (smaller texel = less displacement per unit velocity) and to stream the ink into more fingered tendrils. Kept just under the point where it over-disperses into a faint haze.
+const VEL_MAG = 78; // directional push: drags each note's dye into a flowing ribbon (and displaces
+// the ink already there), rather than a radial blob spreading from a point. The marbling "flow".
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
 const FADE_R = 1.6; // restrike-fade footprint scale (wide enough to catch ink that flowed off the spot)

@@ -31,9 +31,15 @@ const DYE_RES = 1536; // longest side of the dye grid (higher = smoother, less p
 const PRESSURE_ITERS = 28; // Jacobi iterations per step. Bumped with the finer grid: pressure
 // propagates one cell per iteration, so a bigger grid needs more iters to stay incompressible.
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
-const VEL_DISSIPATION = 0.45; // lively "ooey gooey" flow; the blurred-curl confinement keeps it smooth so this can stay low without stippling
-const DYE_DISSIPATION = 0.03; // pigment fades slowly so notes persist as lasting history (longer than the original 0.07; replaying the same note dims it via the restrike fade)
-const CURL_STRENGTH = 24.0; // strong fingering. ROOT-CAUSE FIX for the recurring "pixelation":
+const VEL_DISSIPATION = 0.7; // sustained enough for ink to flow into swirled marbling ribbons,
+// settling over ~1s. Low CURL (below) keeps the flow LAMINAR so colours stay distinct ribbons
+// instead of turbulently mixing into pastel mush — that laminar quality is the marbling look.
+const DYE_DISSIPATION = 0.04; // pigment persists (marbling ribbons stay) but fades slowly so a very
+// long dense piece doesn't fully saturate. Low CURL is what prevents the mush now, not a fast fade,
+// so this can stay low for lasting ribbons.
+const CURL_STRENGTH = 8.0; // LOW on purpose: marbling is laminar. High curl was turbulent and mixed
+// every colour into pastel mush; low curl keeps broad smooth ribbons that swirl but stay distinct.
+// (Curl is still blurred before confinement — see step() — so no grid stipple.) Was the "pixelation":
 // vorticity confinement amplifies whatever curl it sees, and at high strength it amplified its
 // OWN grid-scale noise, which the long-lived dye folded into a stipple that built up over time.
 // The curl is now box-blurred before confinement (see step()), so only the LARGE vortices are
