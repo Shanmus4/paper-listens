@@ -250,7 +250,13 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // painted. These floors are set as low as is usable so faint playing and slides
 // still register. Trade-off: more room noise can paint; raise these if a silent
 // room starts speckling.
-const micVoiced = makeVoicedGate({ silenceRms: 0.0004, clarityLo: 0.2, clarityHi: 0.55 });
+const micVoiced = makeVoicedGate({ silenceRms: 0.01, clarityLo: 0.3, clarityHi: 0.6 });
+// Below this RMS it is room noise / a quiet room, never playing. The sensitive
+// detectors otherwise lock onto sub-audio rumble (6-20Hz, but high "clarity") and the
+// poly detector invents low notes, so a silent room fills with marks. Real playing —
+// even soft fingerpicking — sits clearly above this. This is the master "is anyone
+// actually playing?" gate for the mic; raise it if a quiet room still registers.
+const SILENCE_RMS = 0.014;
 let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
 let liveDropFrames = 0; // consecutive unclear frames; a brief run is tolerated mid-slide
 let liveHue = 0; // time-derived color (0..360) held for the current note
@@ -270,6 +276,12 @@ function onAudioFrame(f) {
   modeTracker.update(f.chroma, f.rms);
   modeTracker.evaluate();
   updateHud(f); // raw readout every frame, even when nothing paints
+
+  // Master silence gate: do nothing unless someone is actually playing (see SILENCE_RMS).
+  if ((f.rms || 0) < SILENCE_RMS) {
+    liveMidi = null;
+    return;
+  }
 
   const now = performance.now();
   const onset = onsetDetector.process(f.flux, f.rms, now);
@@ -441,7 +453,7 @@ async function startMic() {
   // Mic onset at max sensitivity (eager + low loudness floor) so quiet plucks
   // still register. Files keep the default detector (analyzeBuffer builds its
   // own), so this only affects live mic.
-  onsetDetector = createOnsetDetector({ sensitivity: 0.9, minRms: 0.003 });
+  onsetDetector = createOnsetDetector({ sensitivity: 0.7, minRms: 0.014 });
   try {
     source = await createMicSource();
     analyzer = createAnalyzer(source, onAudioFrame);
