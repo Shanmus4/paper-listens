@@ -84,20 +84,25 @@ export function createPolyPitch({
         const d = m - ref[i];
         delta[i] = d > 0 ? d : 0; // only energy that just appeared
       }
-      // Keep the freshly plucked FUNDAMENTAL. The delta already isolates the new
-      // note from the ringing background — that is the whole point: it catches a
-      // melody note plucked over a still-ringing bass (the fingerstyle case the
-      // mono detector gets wrong by locking onto the bass). We return just the
-      // lead, because a single rich note's overtones span many small-integer
-      // ratios and reliably telling "two notes" from "one note's harmonics" needs
-      // a real transcription model. A clearly independent, strong, dissonant
-      // second note (a true double-stop) is the one exception.
+      // The delta isolates the energy that JUST appeared (a note plucked over a
+      // still-ringing one), and detect() suppresses each picked note's harmonics
+      // and drops anything below relCut — so the few peaks it returns are
+      // genuinely distinct. Keep up to maxNotes so overlapping notes each paint,
+      // rejecting only a weaker octave of one already kept (a leftover overtone).
       const raw = detect(delta);
       for (const n of raw) {
-        if (out.length === 0) out.push(n);
-        else if (out.length < 2 && n.energy >= 0.82 && out.every((k) => !harmonicallyRelated(k.hz, n.hz))) {
+        if (out.length === 0) {
           out.push(n);
+          continue;
         }
+        if (out.length >= maxNotes) break;
+        // A further note must be reasonably strong AND not sit at an overtone
+        // interval of one we already kept (octave, fifth, third, ... — the places
+        // a single string's own partials land). Strong + non-harmonic = a real
+        // separate voice (a melody note over a ringing bass); that is the case we
+        // want to catch without a single rich note exploding into a phantom chord.
+        const overtone = out.some((k) => harmonicallyRelated(k.hz, n.hz) && n.energy < k.energy);
+        if (!overtone && n.energy >= 0.7) out.push(n);
       }
     }
     for (let i = 0; i < nBins; i++) {
@@ -147,8 +152,12 @@ export function createPolyPitch({
       notes.push({ midi: best.midi, hz: best.f0, energy: lead > 0 ? bestS / lead : 1 });
 
       // Attenuate this note's harmonics so the next iteration finds a new note.
+      // A wider band (±2 bins) is important for real strings: their upper partials
+      // are slightly SHARP of exact integer multiples (inharmonicity), so a narrow
+      // notch misses them and they get mistaken for separate notes. We also notch
+      // the bin just above each harmonic to catch that sharpness.
       for (const b of best.bins) {
-        for (let d = -1; d <= 1; d++) {
+        for (let d = -2; d <= 3; d++) {
           const bb = b + d;
           if (bb >= 0 && bb < nBins) work[bb] *= 0.12;
         }
