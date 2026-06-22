@@ -57,6 +57,23 @@ function percEvent(tSec, cls, frame, vibrancy) {
   return { t: tSec, type: "percussive", cls, frame, vibrancy, seed: seedFor(tSec) };
 }
 
+// One-pole high-pass, applied fresh to a window. Removes the loud low end (bass,
+// kick) so a second pitch detector locks onto the sung/lead MELODY instead of the
+// bass — which is what a single full-range detector always grabs in a dense mix.
+const MEL_CUTOFF = 150; // Hz — below this is treated as bass and rolled off
+function highpass(src, dst, sr) {
+  const rc = 1 / (2 * Math.PI * MEL_CUTOFF);
+  const a = rc / (rc + 1 / sr);
+  let py = 0;
+  let px = src[0] || 0;
+  dst[0] = 0;
+  for (let i = 1; i < src.length; i++) {
+    py = a * (py + src[i] - px);
+    px = src[i];
+    dst[i] = py;
+  }
+}
+
 // Returns { duration, events } where events are sorted by time (seconds).
 export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   const sr = audioBuffer.sampleRate;
@@ -77,7 +94,13 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
   let vibSign = 0;
   const detector = PitchDetector.forFloat32Array(PITCH_SIZE);
   detector.minVolumeDecibels = -45;
+  // Second detector on a high-passed copy: tracks the sung/lead MELODY line that
+  // the main (bass-locking) detector misses in a full mix.
+  const melodyDetector = PitchDetector.forFloat32Array(PITCH_SIZE);
+  melodyDetector.minVolumeDecibels = -55;
+  let melodyMidi = null; // smoothed melody pitch across frames
   const pitchChunk = new Float32Array(PITCH_SIZE); // trailing window for pitch
+  const melodyChunk = new Float32Array(PITCH_SIZE); // high-passed copy for the melody line
   const polyChunk = new Float32Array(POLY_SIZE); // trailing window for poly detection
   const midiToNote = (m) => {
     const r = Math.round(m);
@@ -194,6 +217,27 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
         const cls = classifyOnset(frame);
         if (cls.type === "percussive") events.push(percEvent(tSec, cls, frame, mode.getVibrancy()));
       }
+    }
+
+    // SECOND LINE — the melody/voice. The main detector above locks onto the
+    // loud bass in a dense mix, so the vocal/lead is never painted. Run a second
+    // detector on a high-passed copy of the window: it finds the strongest pitch
+    // ABOVE the bass (the voice when singing, the lead/guitar in the gaps). Paint
+    // it continuously alongside the bass line, but only when it's a confident
+    // melodic pitch and a DIFFERENT note than the bass line (no duplicate).
+    highpass(pitchChunk, melodyChunk, sr);
+    const [mp, mc] = melodyDetector.findPitch(melodyChunk, sr);
+    const melMidi = mp > 0 ? midiOf(mp) : null;
+    if (mc >= 0.84 && mp >= 160 && mp <= 2500 && melMidi <= 107) {
+      if (melodyMidi == null || Math.abs(melMidi - melodyMidi) > 3) melodyMidi = melMidi; // new note / leap
+      else melodyMidi += (melMidi - melodyMidi) * 0.5; // glide
+      if (strokeMidi == null || Math.abs(melodyMidi - strokeMidi) > 1.5) {
+        const ev = strokeEvent(tSec, melodyMidi, false, timeHue(tSec), false, false, frame, mode.getVibrancy());
+        ev.melody = true; // tag for verification / possible future styling
+        events.push(ev);
+      }
+    } else {
+      melodyMidi = null;
     }
   }
 
