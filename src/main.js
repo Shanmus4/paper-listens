@@ -103,7 +103,7 @@ let firstPaint = false;
 let currentSource = null; // "mic" | "file"
 let ui = null; // controls API, set after wiring
 let userPaused = false; // true only when the user hit pause on purpose
-let gridVisible = true; // overlay that reveals the note map (on by default)
+let gridVisible = false; // overlay that reveals the note map (off by default)
 
 // File playback timeline (set when a song is loaded).
 let player = null;
