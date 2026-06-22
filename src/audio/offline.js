@@ -60,7 +60,12 @@ function percEvent(tSec, cls, frame, vibrancy) {
 // One-pole high-pass, applied fresh to a window. Removes the loud low end (bass,
 // kick) so a second pitch detector locks onto the sung/lead MELODY instead of the
 // bass — which is what a single full-range detector always grabs in a dense mix.
-const MEL_CUTOFF = 150; // Hz — below this is treated as bass and rolled off
+// Hz — below this is treated as bass/kick and rolled off. Set high (300) on
+// purpose: in a dense chorus the bass guitar + kick sit at 60-250Hz and drown
+// the voice detector, so the sung line stopped painting and only the low bass
+// showed (which reads as "drums"). Stripping more low end lets the voice's
+// periodicity dominate the high-passed window, recovering the vocal there.
+const MEL_CUTOFF = 300;
 function highpass(src, dst, sr) {
   const rc = 1 / (2 * Math.PI * MEL_CUTOFF);
   const a = rc / (rc + 1 / sr);
@@ -185,7 +190,7 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     highpass(pitchChunk, melodyChunk, sr);
     const [mp, mc] = melodyDetector.findPitch(melodyChunk, sr);
     const melMidi = mp > 0 ? midiOf(mp) : null;
-    const melodyOk = mc >= 0.84 && mp >= 160 && mp <= 2500 && melMidi != null && melMidi <= 107;
+    const melodyOk = mc >= 0.78 && mp >= 160 && mp <= 2500 && melMidi != null && melMidi <= 107;
 
     if (on && (cleanSingle || plucked.length)) {
       // Clean single note -> the accurate mono pitch. Otherwise (a chord, an
