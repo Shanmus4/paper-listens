@@ -22,13 +22,17 @@ import {
   DISPLAY_FS,
 } from "./shaders.js";
 
-const SIM_RES = 320; // longest side of the velocity/pressure grid (cheap physics)
+const SIM_RES = 512; // longest side of the velocity/pressure grid. Raised 320->512: the
+// velocity field's swirls/vortices live at this scale, so a coarse grid made the ink fold
+// into chunky "puzzle-piece" curls that read as pixelation once it evolved. 512 gives much
+// finer swirls + finer fingered tendrils, closer to real ink. (Lower if a weak GPU stutters.)
 const DYE_RES = 1536; // longest side of the dye grid (higher = smoother, less pixelated)
-const PRESSURE_ITERS = 22; // Jacobi iterations per step (incompressibility)
+const PRESSURE_ITERS = 28; // Jacobi iterations per step. Bumped with the finer grid: pressure
+// propagates one cell per iteration, so a bigger grid needs more iters to stay incompressible.
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
 const VEL_DISSIPATION = 0.32; // how fast motion calms — back to the lively "ooey gooey" flow
 const DYE_DISSIPATION = 0.03; // pigment fades slowly so notes persist as lasting history (longer than the original 0.07; replaying the same note dims it via the restrike fade)
-const CURL_STRENGTH = 14.0; // vorticity confinement (wispy, swirling ink tendrils — the gooey feel)
+const CURL_STRENGTH = 17.0; // vorticity confinement (wispy, swirling ink tendrils — the gooey feel). A bit higher than the old 14 for more pronounced fingered/ruffled edges, but not so high it stirs the ink into a faint diffuse haze.
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
 function makeDouble(gl, w, h) {

@@ -16,7 +16,7 @@ import { createSolver } from "./solver.js";
 const SIM_DT = 1 / 60; // fixed simulation timestep (s)
 const MAX_STEPS = 240; // cap per stepTo call so a big seek can't freeze the tab
 const DYE_STRENGTH = 1.5; // spec alpha -> dye absorbance (per-frame strokes accumulate). Kept at 1.5: raising it darkens/floods the ink (blur), which buries the jagged gooey tendrils. "More paint" is done via SPREAD (blot radius) in synesthesia.js, not density.
-const VEL_MAG = 72; // note impulse speed — strong enough to billow and swirl (the gooey flow)
+const VEL_MAG = 90; // note impulse speed. Scaled up from the old 72 to roughly track the finer SIM_RES (smaller texel = less displacement per unit velocity), but kept below a full 1.6x so the ink streams into fingered tendrils without over-dispersing into a faint haze.
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
 const FADE_R = 1.6; // restrike-fade footprint scale (wide enough to catch ink that flowed off the spot)
