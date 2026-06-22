@@ -2,8 +2,8 @@
    Painting colors are computed in JS; this file styles the paper and chrome only. */
 
 :root {
-  --paper: #f4ede1;
-  --paper-deep: #ece2d2;
+  --paper: #f7efdf;
+  --paper-deep: #f0e6d3;
   --ink: #3a342c;
   --ink-soft: #6b6151;
   --sepia: #8b7355;
@@ -144,7 +144,7 @@ body {
 }
 
 .pill:hover {
-  background: rgba(244, 237, 225, 0.98);
+  background: rgba(247, 239, 223, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
@@ -398,12 +398,12 @@ body {
 
 /* Subtle color change on hover, no movement. */
 .action:hover {
-  background: rgba(244, 237, 225, 0.98);
+  background: rgba(247, 239, 223, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
 .action:active {
-  background: rgba(236, 226, 210, 1);
+  background: rgba(240, 230, 211, 1);
 }
 
 .glyph {
@@ -587,12 +587,12 @@ body {
 }
 
 .transport-btn:hover {
-  background: rgba(244, 237, 225, 0.98);
+  background: rgba(247, 239, 223, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
 .transport-btn:active {
-  background: rgba(236, 226, 210, 1);
+  background: rgba(240, 230, 211, 1);
 }
 
 /* ---------- Save modal ---------- */
