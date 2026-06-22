@@ -26,9 +26,9 @@ const SIM_RES = 320; // longest side of the velocity/pressure grid (cheap physic
 const DYE_RES = 1536; // longest side of the dye grid (higher = smoother, less pixelated)
 const PRESSURE_ITERS = 22; // Jacobi iterations per step (incompressibility)
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
-const VEL_DISSIPATION = 0.5; // how fast motion calms (higher = ink settles in place, no sweeping)
-const DYE_DISSIPATION = 0.015; // pigment barely fades with time — notes persist as lasting history (replaying the same note dims it via the restrike fade, not time)
-const CURL_STRENGTH = 7.0; // vorticity confinement (lower = gentle drop, no big sweeping vortices)
+const VEL_DISSIPATION = 0.32; // how fast motion calms — back to the lively "ooey gooey" flow
+const DYE_DISSIPATION = 0.03; // pigment fades slowly so notes persist as lasting history (longer than the original 0.07; replaying the same note dims it via the restrike fade)
+const CURL_STRENGTH = 14.0; // vorticity confinement (wispy, swirling ink tendrils — the gooey feel)
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
 function makeDouble(gl, w, h) {

@@ -16,7 +16,7 @@ import { createSolver } from "./solver.js";
 const SIM_DT = 1 / 60; // fixed simulation timestep (s)
 const MAX_STEPS = 240; // cap per stepTo call so a big seek can't freeze the tab
 const DYE_STRENGTH = 1.5; // spec alpha -> dye absorbance (per-frame strokes accumulate)
-const VEL_MAG = 40; // note impulse speed (low = ink drops bloom in place, don't sweep across)
+const VEL_MAG = 72; // note impulse speed — strong enough to billow and swirl (the gooey flow)
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
 const FADE_R = 1.25; // restrike-fade footprint scale (a touch wider than the dye)

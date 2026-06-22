@@ -87,8 +87,12 @@ export function loudnessOf(rms) {
 // watercolor ink (vibrancy from the mode nudges how vivid it is).
 export function inkColor(hue, vibrancy = 1) {
   const h = ((hue % 360) + 360) % 360;
-  const sat = clamp(70 * vibrancy, 52, 88);
-  const light = clamp(48 + (vibrancy - 1) * 6, 40, 58);
+  // Richer, more saturated ink (a bit more colourful) while keeping ONE cohesive
+  // drifting palette, not a full rainbow. Saturation is the lever for "more
+  // colour": it deepens the hue without adding new ones. A touch darker too, since
+  // very light ink reads as washed-out/grey over the paper.
+  const sat = clamp(88 * vibrancy, 66, 96);
+  const light = clamp(47 + (vibrancy - 1) * 6, 40, 56);
   return { h, s: sat, l: light };
 }
 
