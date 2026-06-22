@@ -2,10 +2,10 @@
    Painting colors are computed in JS; this file styles the paper and chrome only. */
 
 :root {
-  --paper: #f6e8d6;
-  --paper-deep: #ecdfc8;
-  --ink: #3a342c;
-  --ink-soft: #6b6151;
+  --paper: #efdcc4;
+  --paper-deep: #e6cfb0;
+  --ink: #4a3a28;
+  --ink-soft: #7a6a52;
   --sepia: #8b7355;
   --card: rgba(248, 243, 234, 0.82);
   --card-border: rgba(58, 52, 44, 0.14);
@@ -66,7 +66,7 @@ body {
   pointer-events: none;
   background-image:
     radial-gradient(120% 120% at 50% 50%, transparent 60%, rgba(58, 52, 44, 0.1) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.085'/%3E%3C/svg%3E");
   background-size: cover, 160px 160px;
   mix-blend-mode: multiply;
 }
@@ -144,7 +144,7 @@ body {
 }
 
 .pill:hover {
-  background: rgba(246, 232, 214, 0.98);
+  background: rgba(239, 220, 196, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
@@ -398,12 +398,12 @@ body {
 
 /* Subtle color change on hover, no movement. */
 .action:hover {
-  background: rgba(246, 232, 214, 0.98);
+  background: rgba(239, 220, 196, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
 .action:active {
-  background: rgba(236, 223, 200, 1);
+  background: rgba(230, 207, 176, 1);
 }
 
 .glyph {
@@ -587,12 +587,12 @@ body {
 }
 
 .transport-btn:hover {
-  background: rgba(246, 232, 214, 0.98);
+  background: rgba(239, 220, 196, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
 .transport-btn:active {
-  background: rgba(236, 223, 200, 1);
+  background: rgba(230, 207, 176, 1);
 }
 
 /* ---------- Save modal ---------- */

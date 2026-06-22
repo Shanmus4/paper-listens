@@ -15,7 +15,7 @@ import { createSolver } from "./solver.js";
 
 const SIM_DT = 1 / 60; // fixed simulation timestep (s)
 const MAX_STEPS = 240; // cap per stepTo call so a big seek can't freeze the tab
-const DYE_STRENGTH = 1.7; // spec alpha -> dye absorbance (per-frame strokes accumulate). ~13% stronger than 1.5: every note (soft and loud alike) lays a bit more pigment, lifting the whole soft->loud range without changing its shape.
+const DYE_STRENGTH = 1.5; // spec alpha -> dye absorbance (per-frame strokes accumulate). Kept at 1.5: raising it darkens/floods the ink (blur), which buries the jagged gooey tendrils. "More paint" is done via SPREAD (blot radius) in synesthesia.js, not density.
 const VEL_MAG = 72; // note impulse speed — strong enough to billow and swirl (the gooey flow)
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
@@ -72,8 +72,8 @@ export function createFluidInk(canvas) {
   solver.init(size.cssW, size.cssH);
 
   const paper = cssToRgb(
-    getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#f6e8d6",
-    [0.965, 0.910, 0.839]
+    getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#efdcc4",
+    [0.937, 0.863, 0.769]
   );
 
   let simTime = 0;

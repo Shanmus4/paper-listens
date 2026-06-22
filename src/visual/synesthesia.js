@@ -132,7 +132,10 @@ export function mapPitched(classified, frame, vibrancy, dims, hue = 0, rng = Mat
     const color = inkColor(hue + i * 10, vibrancy); // tones near-matching, not identical
     // Size scales with how hard it was played; energy (this tone's share of the
     // chord) trims weaker voices a little.
-    const radius = minDim * (0.03 + loud * 0.07) * (0.7 + 0.3 * energy);
+    // Spread (radius) bumped ~10% across the soft->loud range (0.03->0.033,
+    // 0.07->0.077). This widens the ink WITHOUT darkening it, so the jagged
+    // gooey tendrils stay visible (density/blur is unchanged — see DYE_STRENGTH).
+    const radius = minDim * (0.033 + loud * 0.077) * (0.7 + 0.3 * energy);
     return {
       x: cell.x,
       y: cell.y,
@@ -178,7 +181,7 @@ export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = 0, slide 
     h: color.h,
     s: color.s,
     l: color.l,
-    radius: minDim * (0.026 + loud * 0.05) * fat,
+    radius: minDim * (0.0286 + loud * 0.055) * fat, // ~10% more spread (was 0.026/0.05), no extra density
     alpha: (0.05 + e * 0.1) * (slide ? 1.3 : shimmer ? 1.15 : 1),
     loud,
     edge: shimmer ? 0.6 : 0.45,
