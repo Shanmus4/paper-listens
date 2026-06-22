@@ -39,9 +39,10 @@ export function createAnalyzer({ audioContext, sourceNode }, onFrame) {
   // Low notes arrive at a mic much quieter than mids; a -45dB floor silently
   // dropped octaves 1-2. But -72dB was too low: in a quiet room the detector
   // locked onto sub-audio rumble (~6-20Hz) with high clarity and painted phantom
-  // notes. -55dB still passes real low notes while ignoring room hiss; the master
-  // RMS gate in main.js is the primary "is anyone playing?" guard.
-  pitchDetector.minVolumeDecibels = -55;
+  // notes. The real guards now live in main.js (a low master RMS gate + a musical
+  // pitch floor that rejects the <62Hz rumble), so the detector can stay sensitive
+  // like a tuner: -60dB keeps a quiet laptop/phone mic detecting soft playing.
+  pitchDetector.minVolumeDecibels = -60;
 
   // Pitch reads RAW time-domain samples from an AnalyserNode tap — exactly how a
   // hardware/software tuner does it. We must NOT reuse Meyda's buffer: Meyda

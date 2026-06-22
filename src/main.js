@@ -250,13 +250,16 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // painted. These floors are set as low as is usable so faint playing and slides
 // still register. Trade-off: more room noise can paint; raise these if a silent
 // room starts speckling.
-const micVoiced = makeVoicedGate({ silenceRms: 0.01, clarityLo: 0.3, clarityHi: 0.6 });
-// Below this RMS it is room noise / a quiet room, never playing. The sensitive
-// detectors otherwise lock onto sub-audio rumble (6-20Hz, but high "clarity") and the
-// poly detector invents low notes, so a silent room fills with marks. Real playing —
-// even soft fingerpicking — sits clearly above this. This is the master "is anyone
-// actually playing?" gate for the mic; raise it if a quiet room still registers.
-const SILENCE_RMS = 0.014;
+// Tuner-style gating: detect a note by its CLARITY at a MUSICAL frequency, not by
+// loudness — so quiet playing (and a quiet phone mic) registers, like a real tuner.
+// A low rms floor only skips dead silence. clarity floors stay lenient.
+const micVoiced = makeVoicedGate({ silenceRms: 0.004, clarityLo: 0.32, clarityHi: 0.6 });
+const SILENCE_RMS = 0.004; // master early-out: below this there is essentially no signal at all
+// Reject anything below low-B (~62Hz). The phantom notes in a "silent" room were
+// sub-audio rumble / mains hum (6-60Hz) the detector locked onto with high clarity;
+// real guitar (low E 82Hz) and voice sit above this, so a musical floor cleans them
+// out without needing a loud-playing gate.
+const PITCH_FLOOR_HZ = 62;
 let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
 let liveDropFrames = 0; // consecutive unclear frames; a brief run is tolerated mid-slide
 let liveHue = 0; // time-derived color (0..360) held for the current note
@@ -292,12 +295,16 @@ function onAudioFrame(f) {
   }
   // Polyphonic detector: the few notes newly sounded on a pluck (chords, and a
   // note plucked over a ringing one). Used unless the pitch is a clear single one.
-  const plucked = micPoly && f.spectrumHi ? micPoly.pluck(f.spectrumHi, onset) : [];
+  // Drop any pluck below the musical floor — those are rumble/hum, not notes.
+  const plucked = (micPoly && f.spectrumHi ? micPoly.pluck(f.spectrumHi, onset) : []).filter(
+    (p) => p.hz >= PITCH_FLOOR_HZ
+  );
   if (onset) {
     // A clear single pitch -> trust the accurate, octave-robust mono detector
     // (same routing as the file path). Otherwise -> the polyphonic detector.
     const monoMidi = f.pitchHz > 0 ? Math.round(midiOf(f.pitchHz)) : null;
-    const cleanSingle = monoMidi != null && f.clarity >= 0.9 && monoMidi >= 24 && monoMidi <= 107;
+    const cleanSingle =
+      monoMidi != null && f.clarity >= 0.9 && f.pitchHz >= PITCH_FLOOR_HZ && monoMidi <= 107;
     // Drums are the LOWEST priority. A clean single pitch is always a real note,
     // but a poly-only onset can be a kick/snare/clap whose broadband energy the
     // detector mistook for notes. If the onset classifies as percussive (noisy,
@@ -322,7 +329,7 @@ function onAudioFrame(f) {
 // chooses notes; here we just hold the latest one (and follow gentle slides),
 // rather than chasing the mono pitch, which on guitar keeps snapping to the bass.
 function paintLive(f, now) {
-  if (!micVoiced(f)) {
+  if (!micVoiced(f) || f.pitchHz < PITCH_FLOOR_HZ) {
     // A high note read through a mic glitches for a frame or two (its weak
     // fundamental makes the detector briefly lose clarity). Don't drop the held
     // note on a short gap, or a SLIDE breaks into separate dots instead of one
@@ -453,7 +460,7 @@ async function startMic() {
   // Mic onset at max sensitivity (eager + low loudness floor) so quiet plucks
   // still register. Files keep the default detector (analyzeBuffer builds its
   // own), so this only affects live mic.
-  onsetDetector = createOnsetDetector({ sensitivity: 0.7, minRms: 0.014 });
+  onsetDetector = createOnsetDetector({ sensitivity: 0.6, minRms: 0.009 });
   try {
     source = await createMicSource();
     analyzer = createAnalyzer(source, onAudioFrame);
