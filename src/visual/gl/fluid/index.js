@@ -19,8 +19,8 @@ const DYE_STRENGTH = 1.5; // spec alpha -> dye absorbance (per-frame strokes acc
 const VEL_MAG = 72; // note impulse speed — strong enough to billow and swirl (the gooey flow)
 const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
 const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
-const FADE_R = 1.25; // restrike-fade footprint scale (a touch wider than the dye)
-const FADE_DECAY = 0.55; // a struck note keeps ~55% of any ink already at its spot
+const FADE_R = 1.6; // restrike-fade footprint scale (wide enough to catch ink that flowed off the spot)
+const FADE_DECAY = 0.38; // replaying a note keeps ~38% of the ink already at its spot — clearly DIMS the previous mark (so repeats don't build to dark) without erasing it
 
 // Percussion paints in neutral GREY (no hue), so drums read as a separate,
 // uncolored layer under the colored notes. Darker for the deep kick, lighter
