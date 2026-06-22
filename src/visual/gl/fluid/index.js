@@ -107,7 +107,13 @@ export function createFluidInk(canvas) {
 
     if (spec.restrike) {
       const loud = spec.loud != null ? spec.loud : 0.3;
-      const ang = fract(Math.sin(point[0] * 127.1 + point[1] * 311.7) * 43758.5453) * Math.PI * 2;
+      // Direction varies PER STRIKE (from the note's deterministic seed), NOT per
+      // position. Hashing by position meant a repeated note (same grid cell) pushed the
+      // same way every time, building a coherent jet that, over a song, swept the whole
+      // painting off one edge like a wave. A per-strike angle keeps it turbulent but
+      // drift-free, and stays deterministic for seek/replay (seed is stable per event).
+      const base = spec.seed != null ? spec.seed : fract(Math.sin(point[0] * 127.1 + point[1] * 311.7) * 43758.5453);
+      const ang = base * Math.PI * 2;
       const mag = VEL_MAG * (0.08 + loud * 0.35);
       const vel = [Math.cos(ang) * mag, Math.sin(ang) * mag, 0];
       solver.splat("velocity", point, vel, Math.max(1e-4, (uvR * VEL_R) ** 2));
@@ -123,8 +129,13 @@ export function createFluidInk(canvas) {
     const point = toUv(spec.x, spec.y);
     const uvR = (spec.radius || 30) / size.cssH;
     solver.splat("dye", point, absorb, Math.max(1e-4, (uvR * DYE_R) ** 2));
-    // A short downward-ish kick so drums punch into the field.
-    solver.splat("velocity", point, [0, -VEL_MAG * 0.4, 0], Math.max(1e-4, (uvR * VEL_R) ** 2));
+    // A short kick so drums punch into the field. Direction varies per hit (from the
+    // seed) rather than always downward — steady drumming otherwise builds a downward
+    // current that washes the painting off the bottom over a song.
+    const base = spec.seed != null ? spec.seed : 0.5;
+    const ang = base * Math.PI * 2;
+    const dmag = VEL_MAG * 0.4;
+    solver.splat("velocity", point, [Math.cos(ang) * dmag, Math.sin(ang) * dmag, 0], Math.max(1e-4, (uvR * VEL_R) ** 2));
   }
 
   // Advance the simulation to song time `t` with fixed steps. Bounded so a large

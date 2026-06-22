@@ -7,7 +7,7 @@
   --ink: #4a3a28;
   --ink-soft: #7a6a52;
   --sepia: #8b7355;
-  --card: rgba(255, 230, 201, 0.6); /* warm, close to the paper; translucent for a frosted-glass look (with backdrop-blur) instead of a white chip */
+  --card: rgba(255, 241, 223, 0.74); /* a tad LIGHTER than the #ffe4c4 paper (not the same), translucent for a frosted-glass look with backdrop-blur — never a white chip */
   --card-border: rgba(58, 52, 44, 0.14);
   --shadow: 0 6px 24px rgba(58, 52, 44, 0.16);
   --radius: 14px;
@@ -187,7 +187,7 @@ body {
 }
 
 .pill:hover {
-  background: rgba(255, 223, 187, 0.82);
+  background: rgba(255, 248, 235, 0.9);
   border-color: rgba(58, 52, 44, 0.2);
 }
 
@@ -244,6 +244,14 @@ body {
 
 .panel-label {
   flex-shrink: 0;
+}
+
+/* The toggle rows (grid / live readout) are <label>s wrapping a switch — the whole
+   row toggles, so show a pointer over the label and its track, not just the input. */
+label.panel-row,
+.switch,
+.switch-track {
+  cursor: pointer;
 }
 
 .panel-row input[type="range"] {
@@ -441,12 +449,12 @@ body {
 
 /* Subtle color change on hover, no movement. */
 .action:hover {
-  background: rgba(255, 223, 187, 0.82);
+  background: rgba(255, 248, 235, 0.9);
   border-color: rgba(58, 52, 44, 0.2);
 }
 
 .action:active {
-  background: rgba(252, 216, 180, 0.95);
+  background: rgba(255, 236, 214, 0.95);
 }
 
 .glyph {
@@ -630,12 +638,12 @@ body {
 }
 
 .transport-btn:hover {
-  background: rgba(255, 223, 187, 0.82);
+  background: rgba(255, 248, 235, 0.9);
   border-color: rgba(58, 52, 44, 0.2);
 }
 
 .transport-btn:active {
-  background: rgba(252, 216, 180, 0.95);
+  background: rgba(255, 236, 214, 0.95);
 }
 
 /* ---------- Save modal ---------- */
