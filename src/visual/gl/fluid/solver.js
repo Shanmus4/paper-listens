@@ -13,6 +13,7 @@ import {
   ADVECT_FS,
   DIVERGENCE_FS,
   CURL_FS,
+  BLUR_FS,
   VORTICITY_FS,
   PRESSURE_FS,
   GRADIENT_FS,
@@ -30,9 +31,14 @@ const DYE_RES = 1536; // longest side of the dye grid (higher = smoother, less p
 const PRESSURE_ITERS = 28; // Jacobi iterations per step. Bumped with the finer grid: pressure
 // propagates one cell per iteration, so a bigger grid needs more iters to stay incompressible.
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
-const VEL_DISSIPATION = 0.32; // how fast motion calms — back to the lively "ooey gooey" flow
+const VEL_DISSIPATION = 0.45; // lively "ooey gooey" flow; the blurred-curl confinement keeps it smooth so this can stay low without stippling
 const DYE_DISSIPATION = 0.03; // pigment fades slowly so notes persist as lasting history (longer than the original 0.07; replaying the same note dims it via the restrike fade)
-const CURL_STRENGTH = 21.0; // vorticity confinement (wispy, swirling ink tendrils — the gooey feel). Pushed up for MORE pronounced gooey tendrils; the finer SIM_RES 512 keeps them crisp rather than chunky. (Past ~24 it over-stirs the ink into a faint haze.)
+const CURL_STRENGTH = 24.0; // strong fingering. ROOT-CAUSE FIX for the recurring "pixelation":
+// vorticity confinement amplifies whatever curl it sees, and at high strength it amplified its
+// OWN grid-scale noise, which the long-lived dye folded into a stipple that built up over time.
+// The curl is now box-blurred before confinement (see step()), so only the LARGE vortices are
+// re-energised (the fingered tendrils) and the grid noise dies. That lets curl run this high for
+// pronounced wavy/lacy tendrils while staying smooth — raising SIM_RES alone never fixed it.
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
 function makeDouble(gl, w, h) {
@@ -50,6 +56,7 @@ export function createSolver(gl, canvas) {
     advect: createProgram(gl, BASE_VS, ADVECT_FS),
     divergence: createProgram(gl, BASE_VS, DIVERGENCE_FS),
     curl: createProgram(gl, BASE_VS, CURL_FS),
+    blur: createProgram(gl, BASE_VS, BLUR_FS),
     vorticity: createProgram(gl, BASE_VS, VORTICITY_FS),
     pressure: createProgram(gl, BASE_VS, PRESSURE_FS),
     gradient: createProgram(gl, BASE_VS, GRADIENT_FS),
@@ -74,7 +81,7 @@ export function createSolver(gl, canvas) {
   let dyeW = 0;
   let dyeH = 0;
   let texel = [0, 0]; // sim-grid texel; also the unit for advection displacement
-  let velocity, dye, pressure, divergence, curl;
+  let velocity, dye, pressure, divergence, curl, curlSmooth;
 
   // The velocity/pressure physics run at the cheap sim grid; the dye (what you
   // see) runs at a higher grid so blooms upscale smoothly instead of blocky.
@@ -83,6 +90,7 @@ export function createSolver(gl, canvas) {
     pressure = makeDouble(gl, simW, simH);
     divergence = createFBO(gl, simW, simH);
     curl = createFBO(gl, simW, simH);
+    curlSmooth = createFBO(gl, simW, simH);
     dye = makeDouble(gl, dyeW, dyeH);
   }
   function freeFields() {
@@ -93,6 +101,7 @@ export function createSolver(gl, canvas) {
     }
     deleteFBO(gl, divergence);
     deleteFBO(gl, curl);
+    deleteFBO(gl, curlSmooth);
   }
 
   // Size both grids from the canvas aspect (longest side = the given res).
@@ -158,11 +167,14 @@ export function createSolver(gl, canvas) {
     });
     swap(velocity);
 
-    // Vorticity confinement (curl -> force).
+    // Vorticity confinement (curl -> force). The curl is box-blurred first so
+    // confinement re-energises only the large vortices (fingered tendrils) and
+    // not the grid-scale noise that would otherwise stipple the dye.
     pass(P.curl, curl, () => tex(0, velocity.read.tex, P.curl, "u_velocity"));
+    pass(P.blur, curlSmooth, () => tex(0, curl.tex, P.blur, "u_src"));
     pass(P.vorticity, velocity.write, () => {
       tex(0, velocity.read.tex, P.vorticity, "u_velocity");
-      tex(1, curl.tex, P.vorticity, "u_curl");
+      tex(1, curlSmooth.tex, P.vorticity, "u_curl");
       gl.uniform1f(P.vorticity.loc("u_curlStrength"), CURL_STRENGTH);
       gl.uniform1f(P.vorticity.loc("u_dt"), dt);
     });

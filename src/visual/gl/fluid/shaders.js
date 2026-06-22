@@ -114,6 +114,28 @@ void main(){
 }
 `;
 
+// Box-blur the curl field. Vorticity confinement amplifies whatever curl it sees,
+// including the grid-scale noise it creates itself — that noise is what folds the
+// long-lived dye into the stippled "pixelation". Smoothing the curl first means the
+// confinement only re-energises the LARGE vortices (the fingered tendrils) and lets
+// the tiny grid-scale ones die, so we get tendrils without the stipple.
+export const BLUR_FS = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D u_src;
+uniform vec2 u_texel;
+out vec4 frag;
+void main(){
+  float s = 0.0;
+  for (int j = -2; j <= 2; j++){
+    for (int i = -2; i <= 2; i++){
+      s += texture(u_src, vUv + vec2(float(i), float(j)) * u_texel).x;
+    }
+  }
+  frag = vec4(s / 25.0, 0.0, 0.0, 1.0);
+}
+`;
+
 // One Jacobi iteration of the pressure solve. Run several times per step to
 // approach an incompressible (divergence-free) velocity field.
 export const PRESSURE_FS = /* glsl */ `#version 300 es
