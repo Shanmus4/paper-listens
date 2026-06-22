@@ -72,8 +72,8 @@ export function createFluidInk(canvas) {
   solver.init(size.cssW, size.cssH);
 
   const paper = cssToRgb(
-    getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#efdcc4",
-    [0.937, 0.863, 0.769]
+    getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#ffe4c4",
+    [1.0, 0.894, 0.769]
   );
 
   let simTime = 0;

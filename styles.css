@@ -2,8 +2,8 @@
    Painting colors are computed in JS; this file styles the paper and chrome only. */
 
 :root {
-  --paper: #efdcc4;
-  --paper-deep: #e6cfb0;
+  --paper: #ffe4c4;
+  --paper-deep: #f5d6b0;
   --ink: #4a3a28;
   --ink-soft: #7a6a52;
   --sepia: #8b7355;
@@ -58,17 +58,23 @@ body {
   pointer-events: none;
 }
 
-/* Grain + vignette layered over the canvas so the paint sits "in" the paper. */
+/* Crumpled-paper texture + vignette over the canvas so the paint sits "in" the
+   paper. The crumple is an SVG height map: low-frequency fractal noise (the soft
+   folds) lit by a distant light (feDiffuseLighting), which renders ridges bright
+   and creases dark — real crease shading, not flat grain. A faint fine grain sits
+   on top for fibre. soft-light blends the relief into the paper so the warm colour
+   shows through (it nudges light/dark around the paper, doesn't repaint it). */
 .paper-grain {
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
   background-image:
-    radial-gradient(120% 120% at 50% 50%, transparent 60%, rgba(58, 52, 44, 0.1) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.085'/%3E%3C/svg%3E");
-  background-size: cover, 160px 160px;
-  mix-blend-mode: multiply;
+    radial-gradient(120% 120% at 50% 50%, transparent 60%, rgba(58, 52, 44, 0.13) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.06'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='760' height='760'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.018' numOctaves='5' seed='12' stitchTiles='stitch' result='n'/%3E%3CfeDiffuseLighting in='n' lighting-color='%23ffffff' surfaceScale='3.4' diffuseConstant='1.05' result='l'%3E%3CfeDistantLight azimuth='235' elevation='50'/%3E%3C/feDiffuseLighting%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
+  background-size: cover, 240px 240px, 760px 760px;
+  mix-blend-mode: overlay;
 }
 
 /* ---------- Shared headline ---------- */
@@ -144,7 +150,7 @@ body {
 }
 
 .pill:hover {
-  background: rgba(239, 220, 196, 0.98);
+  background: rgba(255, 228, 196, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
@@ -398,12 +404,12 @@ body {
 
 /* Subtle color change on hover, no movement. */
 .action:hover {
-  background: rgba(239, 220, 196, 0.98);
+  background: rgba(255, 228, 196, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
 .action:active {
-  background: rgba(230, 207, 176, 1);
+  background: rgba(245, 214, 176, 1);
 }
 
 .glyph {
@@ -587,12 +593,12 @@ body {
 }
 
 .transport-btn:hover {
-  background: rgba(239, 220, 196, 0.98);
+  background: rgba(255, 228, 196, 0.98);
   border-color: rgba(58, 52, 44, 0.24);
 }
 
 .transport-btn:active {
-  background: rgba(230, 207, 176, 1);
+  background: rgba(245, 214, 176, 1);
 }
 
 /* ---------- Save modal ---------- */
