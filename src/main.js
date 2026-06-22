@@ -132,6 +132,22 @@ function levelAt(t) {
 // ---- Render loop ----
 function frame() {
   const now = performance.now();
+  // New Sheet wash in progress: pour the painting downward and dissolve it, then
+  // hard-clear. Skips all normal painting so nothing new lands mid-wash.
+  if (washing) {
+    const g = Math.min(1, (now - washStartMs) / WASH_MS);
+    renderer.washStep(g);
+    renderer.render(now);
+    renderer.renderGrid(gridVisible);
+    levelMeter.render();
+    if (g >= 1) {
+      washing = false;
+      clearCanvas();
+    }
+    lastFrameMs = now;
+    requestAnimationFrame(frame);
+    return;
+  }
   // Drive file playback. The fluid sim is path-dependent, so we don't rebuild it
   // every frame while scrubbing (that would re-simulate from the start on each
   // drag event); we just move the meter and rebuild once on release.
@@ -249,6 +265,7 @@ const midiToNote = (m) => {
 };
 
 function onAudioFrame(f) {
+  if (washing) return; // don't paint while the sheet is washing away
   levelMeter.push(f.rms);
   modeTracker.update(f.chroma, f.rms);
   modeTracker.evaluate();
@@ -371,22 +388,21 @@ function clearCanvas() {
 // ~2.8s and the painting is cleared once it is fully covered, so the ink dissolves
 // away into a blank sheet instead of snapping to empty. Internal clears (switching
 // source) keep using clearCanvas directly. Guarded so rapid clicks don't stack.
-const sheetWipe = document.getElementById("sheetWipe");
-let wipeTimers = [];
+// New Sheet (user-initiated): the painting WASHES away. The fluid streams the whole
+// picture downward like a waterfall and dissolves it over ~3s (washStep each frame in
+// the render loop), then a hard clear leaves a blank sheet — no overlay, no circle, it
+// is the painting itself flowing off. The Canvas 2D fallback has no fluid, so it just
+// clears. Internal clears (switching source) still call clearCanvas directly.
+const WASH_MS = 3000;
+let washing = false;
+let washStartMs = 0;
 function animatedClear() {
-  if (!sheetWipe) {
+  if (!renderer.isGL) {
     clearCanvas();
     return;
   }
-  wipeTimers.forEach(clearTimeout);
-  wipeTimers = [];
-  sheetWipe.classList.remove("go");
-  void sheetWipe.offsetWidth; // restart the animation from scratch
-  sheetWipe.classList.add("go");
-  // Clear the painting at ~62% of the 2.8s, when the wash is fully covering it; the
-  // wash then fades to reveal the blank sheet.
-  wipeTimers.push(setTimeout(clearCanvas, 1750));
-  wipeTimers.push(setTimeout(() => sheetWipe.classList.remove("go"), 2900));
+  washing = true;
+  washStartMs = performance.now();
 }
 
 function teardownSource() {

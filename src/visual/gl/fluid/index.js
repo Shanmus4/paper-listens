@@ -140,6 +140,22 @@ export function createFluidInk(canvas) {
     if (n >= MAX_STEPS) simTime = t;
   }
 
+  // New Sheet wash: instead of snapping to empty, stream the whole painting
+  // downward like a waterfall and fade it out. Called every frame for the wash's
+  // duration; the caller hard-clears at the end. `g` (0..1) is wash progress, used
+  // to ramp the downward pull so it starts as a gentle pour and builds.
+  function washStep(g) {
+    // A SMALL downward impulse added each frame. The field barely dissipates, so this
+    // ACCUMULATES into a gathering downward flow (a gentle pour that speeds up), rather
+    // than a one-shot shove. Tiny values on purpose: ~1-3/frame builds to a full-screen
+    // pour over ~3s; large values rocket the ink off-screen in a blink.
+    const pull = 1.0 + 2.0 * g;
+    solver.splat("velocity", [0.5, 0.5], [0, -pull, 0], 9.0);
+    solver.drainDye(0.99); // dissolve the pigment slowly as it pours; the final clear finishes it
+    solver.step(SIM_DT);
+    simTime += SIM_DT;
+  }
+
   function render() {
     solver.display(paper, size.w, size.h);
   }
@@ -169,6 +185,7 @@ export function createFluidInk(canvas) {
     bake: (spec) => inject(spec),
     bakeSplat: (spec) => injectSplat(spec),
     stepTo,
+    washStep,
     render,
     clear,
     purge: () => {}, // no wet list to drop; the field is the painting

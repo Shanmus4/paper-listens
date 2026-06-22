@@ -95,6 +95,7 @@ function glRenderer(ink, overlayCanvas, octx) {
     bake: ink.bake,
     bakeSplat: ink.bakeSplat,
     stepTo: ink.stepTo,
+    washStep: ink.washStep,
     render: ink.render,
     renderGrid,
     clear: ink.clear,
@@ -133,6 +134,7 @@ function canvasRenderer(paperCanvas, overlayCanvas, octx) {
     bake: (spec) => watercolor.bake(spec),
     bakeSplat: (spec) => percussion.bake(spec),
     stepTo() {}, // the Canvas 2D painting is static; no simulation to advance
+    washStep() {}, // no fluid to wash; main.js falls back to an instant clear
     render(now) {
       const { ctx, buffer, width, height } = paper.state;
       ctx.fillStyle = PAPER_CSS;

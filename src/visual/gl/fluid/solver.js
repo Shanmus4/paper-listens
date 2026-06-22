@@ -237,6 +237,16 @@ export function createSolver(gl, canvas) {
     swap(dye);
   }
 
+  // Fade the WHOLE dye field by a constant (0..1). Used by the New Sheet wash to
+  // dissolve the painting to nothing while it streams away.
+  function drainDye(factor) {
+    pass(P.clear, dye.write, () => {
+      tex(0, dye.read.tex, P.clear, "u_target");
+      gl.uniform1f(P.clear.loc("u_value"), factor);
+    });
+    swap(dye);
+  }
+
   // Tonemap the dye to the screen over the paper color.
   function display(paper, devW, devH) {
     gl.useProgram(P.display.program);
@@ -261,6 +271,7 @@ export function createSolver(gl, canvas) {
     step,
     splat,
     fade,
+    drainDye,
     display,
     resize,
     clear: clearAll,
