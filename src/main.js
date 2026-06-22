@@ -367,6 +367,28 @@ function clearCanvas() {
   headline.classList.remove("faded");
 }
 
+// New Sheet (user-initiated): a paper-coloured wash spreads from the centre over
+// ~2.8s and the painting is cleared once it is fully covered, so the ink dissolves
+// away into a blank sheet instead of snapping to empty. Internal clears (switching
+// source) keep using clearCanvas directly. Guarded so rapid clicks don't stack.
+const sheetWipe = document.getElementById("sheetWipe");
+let wipeTimers = [];
+function animatedClear() {
+  if (!sheetWipe) {
+    clearCanvas();
+    return;
+  }
+  wipeTimers.forEach(clearTimeout);
+  wipeTimers = [];
+  sheetWipe.classList.remove("go");
+  void sheetWipe.offsetWidth; // restart the animation from scratch
+  sheetWipe.classList.add("go");
+  // Clear the painting at ~62% of the 2.8s, when the wash is fully covering it; the
+  // wash then fades to reveal the blank sheet.
+  wipeTimers.push(setTimeout(clearCanvas, 1750));
+  wipeTimers.push(setTimeout(() => sheetWipe.classList.remove("go"), 2900));
+}
+
 function teardownSource() {
   loadToken++; // invalidate any file load still in flight
   analyzer?.stop();
@@ -507,7 +529,7 @@ ui = wireControls({
     ui?.showProcessing(false);
     ui?.setPlaying(false);
   },
-  onClear: clearCanvas,
+  onClear: animatedClear,
   onSave: (name) => renderer.save(name),
   onGrid: (on) => {
     gridVisible = on;

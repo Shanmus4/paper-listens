@@ -58,23 +58,60 @@ body {
   pointer-events: none;
 }
 
-/* Crumpled-paper texture + vignette over the canvas so the paint sits "in" the
-   paper. The crumple is an SVG height map: low-frequency fractal noise (the soft
-   folds) lit by a distant light (feDiffuseLighting), which renders ridges bright
-   and creases dark — real crease shading, not flat grain. A faint fine grain sits
-   on top for fibre. soft-light blends the relief into the paper so the warm colour
-   shows through (it nudges light/dark around the paper, doesn't repaint it). */
+/* Crumpled-paper texture + vignette over the canvas. The crumple is ONE full-screen
+   SVG (no tiling, so there is no seam line down the middle): low-frequency fractal
+   noise as a height map, lit by a near-overhead distant light (feDiffuseLighting) so
+   flat areas stay almost white and only the folds fall into soft shadow. It is blended
+   with MULTIPLY: white flat areas leave the paper colour (and the painting) untouched,
+   and only the creases darken — so the paper reads as #ffe4c4 *with* creases, not white
+   with coloured creases, and the paint keeps its opacity. */
 .paper-grain {
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
   background-image:
-    radial-gradient(120% 120% at 50% 50%, transparent 60%, rgba(58, 52, 44, 0.13) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.06'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='760' height='760'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.018' numOctaves='5' seed='12' stitchTiles='stitch' result='n'/%3E%3CfeDiffuseLighting in='n' lighting-color='%23ffffff' surfaceScale='3.4' diffuseConstant='1.05' result='l'%3E%3CfeDistantLight azimuth='235' elevation='50'/%3E%3C/feDiffuseLighting%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
-  background-size: cover, 240px 240px, 760px 760px;
-  mix-blend-mode: overlay;
+    radial-gradient(125% 125% at 50% 50%, transparent 64%, rgba(58, 52, 44, 0.09) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1440' height='900'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.011' numOctaves='5' seed='6' result='n'/%3E%3CfeDiffuseLighting in='n' lighting-color='%23ffffff' surfaceScale='1.9' diffuseConstant='1' result='l'%3E%3CfeDistantLight azimuth='235' elevation='73'/%3E%3C/feDiffuseLighting%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
+  background-size: cover, cover;
+  background-repeat: no-repeat, no-repeat;
+  background-position: center, center;
+  mix-blend-mode: multiply;
+}
+
+/* New Sheet wipe: a soft paper-coloured wash that spreads out from the centre over
+   ~2.8s, covering the painting; the canvas is cleared while it is fully covered, then
+   the wash fades to reveal a blank sheet. Sits above the painting (z 1) but below the
+   controls (z 2), and the grain (later in the DOM, same z) stays on top of it. */
+.sheet-wipe {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 260vmax;
+  height: 260vmax;
+  margin: -130vmax 0 0 -130vmax;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--paper) 0%,
+    var(--paper) 50%,
+    rgba(255, 228, 196, 0.55) 72%,
+    rgba(255, 228, 196, 0) 100%
+  );
+  transform: scale(0);
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.sheet-wipe.go {
+  animation: sheet-wipe 2.8s cubic-bezier(0.32, 0, 0.22, 1) forwards;
+}
+@keyframes sheet-wipe {
+  0% { transform: scale(0); opacity: 0; }
+  12% { opacity: 1; }
+  62% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
 }
 
 /* ---------- Shared headline ---------- */
@@ -150,8 +187,8 @@ body {
 }
 
 .pill:hover {
-  background: rgba(255, 228, 196, 0.98);
-  border-color: rgba(58, 52, 44, 0.24);
+  background: rgba(255, 249, 239, 0.96);
+  border-color: rgba(58, 52, 44, 0.2);
 }
 
 .caret {
@@ -404,12 +441,12 @@ body {
 
 /* Subtle color change on hover, no movement. */
 .action:hover {
-  background: rgba(255, 228, 196, 0.98);
-  border-color: rgba(58, 52, 44, 0.24);
+  background: rgba(255, 249, 239, 0.96);
+  border-color: rgba(58, 52, 44, 0.2);
 }
 
 .action:active {
-  background: rgba(245, 214, 176, 1);
+  background: rgba(250, 232, 210, 1);
 }
 
 .glyph {
@@ -593,12 +630,12 @@ body {
 }
 
 .transport-btn:hover {
-  background: rgba(255, 228, 196, 0.98);
-  border-color: rgba(58, 52, 44, 0.24);
+  background: rgba(255, 249, 239, 0.96);
+  border-color: rgba(58, 52, 44, 0.2);
 }
 
 .transport-btn:active {
-  background: rgba(245, 214, 176, 1);
+  background: rgba(250, 232, 210, 1);
 }
 
 /* ---------- Save modal ---------- */

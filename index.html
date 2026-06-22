@@ -50,6 +50,10 @@
   <body>
     <canvas id="paper" aria-label="Your painting"></canvas>
     <canvas id="overlay" aria-hidden="true"></canvas>
+    <!-- New Sheet wipe: a paper-coloured wash that spreads from the centre and
+         clears the painting, revealing a blank sheet. Sits above the painting but
+         below the controls. -->
+    <div id="sheetWipe" class="sheet-wipe" aria-hidden="true"></div>
     <div class="paper-grain" aria-hidden="true"></div>
 
     <div id="stage" class="stage">

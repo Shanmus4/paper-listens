@@ -32,7 +32,7 @@ const PRESSURE_ITERS = 28; // Jacobi iterations per step. Bumped with the finer 
 const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
 const VEL_DISSIPATION = 0.32; // how fast motion calms — back to the lively "ooey gooey" flow
 const DYE_DISSIPATION = 0.03; // pigment fades slowly so notes persist as lasting history (longer than the original 0.07; replaying the same note dims it via the restrike fade)
-const CURL_STRENGTH = 17.0; // vorticity confinement (wispy, swirling ink tendrils — the gooey feel). A bit higher than the old 14 for more pronounced fingered/ruffled edges, but not so high it stirs the ink into a faint diffuse haze.
+const CURL_STRENGTH = 21.0; // vorticity confinement (wispy, swirling ink tendrils — the gooey feel). Pushed up for MORE pronounced gooey tendrils; the finer SIM_RES 512 keeps them crisp rather than chunky. (Past ~24 it over-stirs the ink into a faint haze.)
 
 // A read/write pair of same-size FBOs, swapped after each pass that writes it.
 function makeDouble(gl, w, h) {
