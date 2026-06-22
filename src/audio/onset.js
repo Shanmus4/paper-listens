@@ -17,10 +17,11 @@ const MIN_RMS = 0.006; // ignore room noise / silence
 const MIN_RATIO = 1.4; // flux must clear this multiple of the median
 const MAD_TO_STD = 1.4826; // scales MAD to a std-equivalent for normal data
 
-export function createOnsetDetector({ sensitivity = 0.5 } = {}) {
+export function createOnsetDetector({ sensitivity = 0.5, minRms = MIN_RMS } = {}) {
   const history = [];
   let lastOnsetMs = -Infinity;
   let sens = sensitivity;
+  const minRms_ = minRms; // per-source loudness floor (mic uses a lower one)
 
   function median(sortedArr) {
     const n = sortedArr.length;
@@ -40,7 +41,7 @@ export function createOnsetDetector({ sensitivity = 0.5 } = {}) {
   function process(flux, rms, nowMs) {
     let onset = null;
 
-    if (history.length >= WARMUP && rms > MIN_RMS) {
+    if (history.length >= WARMUP && rms > minRms_) {
       const { med, mad } = robustStats();
       // More sensitivity -> lower bar. k spans ~4.5 (picky) to ~1.5 (eager).
       const k = 1.5 + (1 - sens) * 3;

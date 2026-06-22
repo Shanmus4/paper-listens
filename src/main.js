@@ -227,7 +227,14 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // ~0.5 (measured F#1 = 0.53), so the low end is lenient (0.45); high notes must
 // be crisp (0.88) so high-frequency noise and harmonic mis-locks (e.g. F#6 at
 // clarity 0.46) are rejected. Confirm-frames still require a stable pitch.
-const micVoiced = makeVoicedGate({ silenceRms: 0.0012, clarityLo: 0.35, clarityHi: 0.8 });
+// Mic sensitivity dialed to MAX. A laptop's built-in mic (notably MacBooks)
+// feeds the browser a much quieter, more processed signal than a desktop/USB
+// mic, so with auto-gain off the level and clarity sit low — quiet notes and
+// the tiny per-frame puffs that draw a SLIDE fell under the old gates and never
+// painted. These floors are set as low as is usable so faint playing and slides
+// still register. Trade-off: more room noise can paint; raise these if a silent
+// room starts speckling.
+const micVoiced = makeVoicedGate({ silenceRms: 0.0004, clarityLo: 0.2, clarityHi: 0.55 });
 let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
 let liveHue = 0; // time-derived color (0..360) held for the current note
 let micPoly = null; // polyphonic pluck detector (built lazily once we know the rate)
@@ -385,6 +392,10 @@ async function startMic() {
   const changed = currentSource !== "mic";
   teardownSource();
   userPaused = false;
+  // Mic onset at max sensitivity (eager + low loudness floor) so quiet plucks
+  // still register. Files keep the default detector (analyzeBuffer builds its
+  // own), so this only affects live mic.
+  onsetDetector = createOnsetDetector({ sensitivity: 0.9, minRms: 0.003 });
   try {
     source = await createMicSource();
     analyzer = createAnalyzer(source, onAudioFrame);
