@@ -8,7 +8,7 @@
       <stop offset="1" stop-color="#3a5bcc" />
     </linearGradient>
   </defs>
-  <rect width="32" height="32" rx="7" fill="#f4ede1" />
+  <rect width="32" height="32" rx="7" fill="#ffe4c4" />
   <g fill="url(#note)">
     <!-- stem -->
     <path d="M15.3 8 L17.9 7.1 L17.9 21.6 L15.3 21.6 Z" />
