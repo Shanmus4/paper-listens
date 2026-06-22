@@ -178,6 +178,15 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
     const monoMidi = frame.pitchHz > 0 ? Math.round(midiOf(frame.pitchHz)) : null;
     const cleanSingle = monoMidi != null && frame.clarity >= 0.9 && monoMidi >= 24 && monoMidi <= 107;
 
+    // MELODY/VOICE line, detected up front so drums can be deprioritized below it.
+    // A second detector on a high-passed copy finds the strongest pitch ABOVE the
+    // bass (the voice when singing, the lead/guitar in the gaps). Computing it here
+    // lets the percussion branch stay silent whenever a vocal/lead is present.
+    highpass(pitchChunk, melodyChunk, sr);
+    const [mp, mc] = melodyDetector.findPitch(melodyChunk, sr);
+    const melMidi = mp > 0 ? midiOf(mp) : null;
+    const melodyOk = mc >= 0.84 && mp >= 160 && mp <= 2500 && melMidi != null && melMidi <= 107;
+
     if (on && (cleanSingle || plucked.length)) {
       // Clean single note -> the accurate mono pitch. Otherwise (a chord, an
       // overlap, a noisy moment) -> let the polyphonic detector name the few notes.
@@ -213,22 +222,20 @@ export function analyzeBuffer(audioBuffer, { sensitivity = 0.5 } = {}) {
       events.push(strokeEvent(tSec, strokeMidi, dir, strokeHue, false, shimmer, frame, mode.getVibrancy()));
     } else if (!voiced(frame)) {
       strokeMidi = null;
-      if (r && r.type === "perc") {
+      // Drums are the LOWEST-priority layer. Only paint percussion when no
+      // vocal/lead melody is sounding (melodyOk) AND the pitched branches above
+      // didn't fire. This stops the kit from painting over the singing/instrument.
+      if (!melodyOk && r && r.type === "perc") {
         const cls = classifyOnset(frame);
         if (cls.type === "percussive") events.push(percEvent(tSec, cls, frame, mode.getVibrancy()));
       }
     }
 
-    // SECOND LINE — the melody/voice. The main detector above locks onto the
-    // loud bass in a dense mix, so the vocal/lead is never painted. Run a second
-    // detector on a high-passed copy of the window: it finds the strongest pitch
-    // ABOVE the bass (the voice when singing, the lead/guitar in the gaps). Paint
-    // it continuously alongside the bass line, but only when it's a confident
-    // melodic pitch and a DIFFERENT note than the bass line (no duplicate).
-    highpass(pitchChunk, melodyChunk, sr);
-    const [mp, mc] = melodyDetector.findPitch(melodyChunk, sr);
-    const melMidi = mp > 0 ? midiOf(mp) : null;
-    if (mc >= 0.84 && mp >= 160 && mp <= 2500 && melMidi <= 107) {
+    // SECOND LINE — paint the melody/voice detected above, alongside the bass,
+    // but only when it's a confident melodic pitch and a DIFFERENT note than the
+    // bass line (no duplicate). This is the HIGHEST-priority layer: a vocal/lead
+    // always paints, and (via melodyOk above) it suppresses the drums underneath.
+    if (melodyOk) {
       if (melodyMidi == null || Math.abs(melMidi - melodyMidi) > 3) melodyMidi = melMidi; // new note / leap
       else melodyMidi += (melMidi - melodyMidi) * 0.5; // glide
       if (strokeMidi == null || Math.abs(melodyMidi - strokeMidi) > 1.5) {

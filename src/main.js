@@ -9,6 +9,7 @@ import { createAnalyzer } from "./audio/features.js";
 import { analyzeBuffer } from "./audio/offline.js";
 import { createOnsetDetector } from "./audio/onset.js";
 import { createModeTracker } from "./audio/mode.js";
+import { classifyOnset } from "./audio/classify.js";
 import { mapPitched, mapPercussive, strokeSpec, timeHue, PITCH_NAMES } from "./visual/synesthesia.js";
 import { freqToNote } from "./audio/notes.js";
 import { makeVoicedGate } from "./audio/tracker.js";
@@ -260,7 +261,12 @@ function onAudioFrame(f) {
     // (same routing as the file path). Otherwise -> the polyphonic detector.
     const monoMidi = f.pitchHz > 0 ? Math.round(midiOf(f.pitchHz)) : null;
     const cleanSingle = monoMidi != null && f.clarity >= 0.9 && monoMidi >= 24 && monoMidi <= 107;
-    if (cleanSingle || plucked.length) {
+    // Drums are the LOWEST priority. A clean single pitch is always a real note,
+    // but a poly-only onset can be a kick/snare/clap whose broadband energy the
+    // detector mistook for notes. If the onset classifies as percussive (noisy,
+    // pitchless, unpeaked), skip it so it can't paint over the voice/instrument.
+    const drumHit = !cleanSingle && plucked.length > 0 && classifyOnset(f).type === "percussive";
+    if (!drumHit && (cleanSingle || plucked.length)) {
       const notes = cleanSingle
         ? [{ ...midiToNote(monoMidi), energy: 1 }]
         : plucked.map((p) => ({ ...midiToNote(p.midi), energy: p.energy }));
