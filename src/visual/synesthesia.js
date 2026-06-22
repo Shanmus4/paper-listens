@@ -183,6 +183,60 @@ export function strokeSpec(midiFloat, frame, dims, vibrancy = 1, hue = 0, slide 
   };
 }
 
+// --- Spectral painter specs (the current engine; see audio/spectral.js) ---
+// One small coloured puff for a single spectral peak (a slice of frequency energy
+// at its real pitch). Called for each peak EVERY frame, so a held note stacks
+// puffs at its spot and the bloom grows, while a passing sound leaves a faint
+// mark. Keep alpha/radius LOW because these accumulate frame after frame.
+// `energy` (0..1) is this peak's share of the frame's loudest peak; `hue` is the
+// time-derived colour (see timeHue); SIZE also scales with overall loudness.
+export function spectralSpec(midi, energy, frame, dims, hue = 0, vibrancy = 1) {
+  const { width, height } = dims;
+  const minDim = Math.min(width, height);
+  const loud = loudnessOf(frame.rms);
+  const p = pitchToPoint(midi, width, height);
+  const color = inkColor(hue, vibrancy);
+  return {
+    x: p.x,
+    y: p.y,
+    midi,
+    h: color.h,
+    s: color.s,
+    l: color.l,
+    radius: minDim * (0.012 + loud * 0.03) * (0.5 + 0.5 * energy),
+    alpha: 0.012 + energy * 0.035,
+    loud,
+    edge: 0.45,
+    grain: clamp(frame.flatness || 0, 0, 1),
+    restrike: false, // spectral puffs only accumulate; nothing is "struck" away
+    seed: 0,
+  };
+}
+
+// One broad GREY puff for a noisy/broadband frame (drums, breath, cymbals). The
+// `wash` (0..1, from spectral.js) rises with noisiness; it smears a neutral cloud
+// instead of the coloured peaks, so percussion reads as its own uncoloured layer.
+// Position from brightness: a dull thud sits low, a crisp hit sits high.
+export function washSpec(wash, frame, dims) {
+  const { width, height } = dims;
+  const minDim = Math.min(width, height);
+  const bright = brightness(frame.centroidHz);
+  return {
+    x: width * 0.5,
+    y: height * clamp(0.82 - bright * 0.64, 0.12, 0.88),
+    h: 0,
+    s: 0,
+    l: 42,
+    radius: minDim * (0.06 + wash * 0.06),
+    alpha: 0.02 * wash,
+    loud: wash,
+    edge: 0.3,
+    grain: 0.5,
+    restrike: false,
+    seed: 0,
+  };
+}
+
 // Percussive onset -> monochrome ink splatter. Position from centroid:
 // low/dark -> lower-left, high/bright -> upper-right.
 export function mapPercussive(classified, frame, dims, rng = Math.random) {
