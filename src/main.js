@@ -236,6 +236,7 @@ function paintToTime(t, instant, nowMs = performance.now()) {
 // room starts speckling.
 const micVoiced = makeVoicedGate({ silenceRms: 0.0004, clarityLo: 0.2, clarityHi: 0.55 });
 let liveMidi = null; // smoothed live pitch (fractional MIDI), null when silent
+let liveDropFrames = 0; // consecutive unclear frames; a brief run is tolerated mid-slide
 let liveHue = 0; // time-derived color (0..360) held for the current note
 let micPoly = null; // polyphonic pluck detector (built lazily once we know the rate)
 let vibReversals = 0; // decaying count of pitch-direction flips -> detects vibrato
@@ -293,9 +294,15 @@ function onAudioFrame(f) {
 // rather than chasing the mono pitch, which on guitar keeps snapping to the bass.
 function paintLive(f, now) {
   if (!micVoiced(f)) {
-    liveMidi = null;
+    // A high note read through a mic glitches for a frame or two (its weak
+    // fundamental makes the detector briefly lose clarity). Don't drop the held
+    // note on a short gap, or a SLIDE breaks into separate dots instead of one
+    // moving trail — this is exactly why high-octave slides looked broken while
+    // low ones (which never glitch) were fine. Release only after ~70ms of gaps.
+    if (++liveDropFrames > 3) liveMidi = null;
     return;
   }
+  liveDropFrames = 0;
   const m = midiOf(f.pitchHz);
   let dir = false; // becomes true when the pitch is moving (a slide -> thicker trail)
   let fresh = false; // true only on the first frame of a new note
@@ -385,6 +392,7 @@ function teardownSource() {
 // Reset the live painter state (new source / fresh sheet).
 function resetTracker() {
   liveMidi = null;
+  liveDropFrames = 0;
   micPoly?.reset(); // forget the ringing-background spectrum
 }
 
