@@ -28,6 +28,7 @@ desktop.ini
 .vscode/
 *.swp
 .claude/
+.playwright-mcp/
 
 # vercel
 .vercel/
