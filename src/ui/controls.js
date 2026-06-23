@@ -23,6 +23,7 @@ export function wireControls({
   onTogglePlay,
   onGrid,
   onLiveView,
+  onTuning,
   onSeek,
   onSeekCommit,
 }) {
@@ -61,6 +62,7 @@ export function wireControls({
 
   const gridToggle = document.getElementById("gridToggle");
   const liveViewToggle = document.getElementById("liveViewToggle");
+  const tuningToggle = document.getElementById("tuningToggle");
 
   const clearBtn = document.getElementById("clearBtn");
   const saveBtn = document.getElementById("saveBtn");
@@ -162,6 +164,12 @@ export function wireControls({
   if (liveViewToggle) {
     liveViewToggle.addEventListener("change", () => onLiveView?.(liveViewToggle.checked));
     onLiveView?.(liveViewToggle.checked); // honor its initial state on load
+  }
+
+  // --- Tuning panel toggle ---
+  if (tuningToggle) {
+    tuningToggle.addEventListener("change", () => onTuning?.(tuningToggle.checked));
+    onTuning?.(tuningToggle.checked); // honor its initial state on load (off)
   }
 
   // --- New Sheet ---

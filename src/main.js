@@ -16,6 +16,7 @@ import { makeVoicedGate } from "./audio/tracker.js";
 import { createPolyPitch } from "./audio/polypitch.js";
 import { seededRng } from "./visual/rng.js";
 import { createRecorder } from "./ui/record.js";
+import { createTuningPanel } from "./ui/tuning.js";
 
 const paperEl = document.getElementById("paper");
 const overlayEl = document.getElementById("overlay");
@@ -26,6 +27,21 @@ const headline = document.getElementById("headline");
 const micHint = document.getElementById("micHint");
 
 const recorder = createRecorder(paperEl);
+
+// Live painting-tuning panel (toggled from Controls). When open we keep the fluid
+// stepping even with no audio, so dragging a slider re-flows the existing ink.
+// The panel's close button flips the Controls switch so the two stay in sync
+// (the switch's change handler hides the panel and clears tuningActive).
+const tuningPanel = createTuningPanel(document.getElementById("tuningPanel"), {
+  onClose: () => {
+    const toggle = document.getElementById("tuningToggle");
+    if (toggle) {
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event("change"));
+    }
+  },
+});
+let tuningActive = false;
 
 const DEBUG = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 
@@ -163,6 +179,11 @@ function frame() {
     }
   } else if (currentSource === "mic") {
     // No timeline in mic mode: advance the fluid by real elapsed time.
+    micSimT += Math.min(0.05, (now - lastFrameMs) / 1000);
+    renderer.stepTo(micSimT);
+  } else if (tuningActive) {
+    // No active source, but the tuning panel is open: keep evolving the sim by
+    // wall time so a slider drag visibly re-flows the ink already on the sheet.
     micSimT += Math.min(0.05, (now - lastFrameMs) / 1000);
     renderer.stepTo(micSimT);
   }
@@ -570,6 +591,10 @@ ui = wireControls({
     gridVisible = on;
   },
   onLiveView: (on) => setHudVisible(on),
+  onTuning: (on) => {
+    tuningActive = on;
+    tuningPanel.setVisible(on);
+  },
   // Dragging the seek bar: just record the target. The render loop repaints to
   // it once per frame, so rapid drag events don't pile up expensive rebuilds.
   // Audio waits for release so scrubbing doesn't machine-gun it with restarts.

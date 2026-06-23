@@ -12,16 +12,13 @@
 
 import { createGLContext, sizeCanvas } from "../context.js";
 import { createSolver } from "./solver.js";
+import { params, onParamChange } from "../../params.js";
 
 const SIM_DT = 1 / 60; // fixed simulation timestep (s)
 const MAX_STEPS = 240; // cap per stepTo call so a big seek can't freeze the tab
-const DYE_STRENGTH = 1.5; // spec alpha -> dye absorbance (per-frame strokes accumulate). Kept at 1.5: raising it darkens/floods the ink (blur), which buries the jagged gooey tendrils. "More paint" is done via SPREAD (blot radius) in synesthesia.js, not density.
-const VEL_MAG = 78; // directional push: drags each note's dye into a flowing ribbon (and displaces
-// the ink already there), rather than a radial blob spreading from a point. The marbling "flow".
-const DYE_R = 0.9; // dye splat radius scale (relative to spec radius)
-const VEL_R = 1.6; // velocity splat radius scale (push a wider area than the dye)
-const FADE_R = 1.6; // restrike-fade footprint scale (wide enough to catch ink that flowed off the spot)
-const FADE_DECAY = 0.38; // replaying a note keeps ~38% of the ink already at its spot — clearly DIMS the previous mark (so repeats don't build to dark) without erasing it
+// All the ink dials (push strength, ink density/size, restrike fade, etc.) live in
+// ../../params.js and are read from `params` at injection time, so the Tuning panel
+// can change how new notes drop without a reload. See params.js for what each does.
 
 // Percussion paints in neutral GREY (no hue), so drums read as a separate,
 // uncolored layer under the colored notes. Darker for the deep kick, lighter
@@ -72,6 +69,13 @@ export function createFluidInk(canvas) {
   const solver = createSolver(gl, canvas);
   solver.init(size.cssW, size.cssH);
 
+  // A grid-resolution dial moved: rebuild the fields at the new size (the solver
+  // preserves the painting). Other params are read live each step, so they need
+  // no hook. Created once for the app's lifetime alongside the solver.
+  onParamChange((key) => {
+    if (key === "simRes" || key === "dyeRes") solver.rebuild();
+  });
+
   const paper = cssToRgb(
     getComputedStyle(document.body).getPropertyValue("background-color").trim() || "#ffe4c4",
     [1.0, 0.894, 0.769]
@@ -94,7 +98,7 @@ export function createFluidInk(canvas) {
   // wider; soft notes barely move. Sustain puffs (no restrike) add dye only.
   function inject(spec) {
     const rgb = spec.color || hslToRgb(spec.h, spec.s, spec.l);
-    const density = (spec.alpha || 0.4) * DYE_STRENGTH;
+    const density = (spec.alpha || 0.4) * params.dyeStrength;
     const absorb = [density * (1 - rgb[0]), density * (1 - rgb[1]), density * (1 - rgb[2])];
     const point = toUv(spec.x, spec.y);
     const uvR = (spec.radius || 30) / size.cssH; // height-normalized (splat scales x by aspect)
@@ -102,9 +106,9 @@ export function createFluidInk(canvas) {
     // ink already at this spot, so replaying the same note dims its old mark and
     // the spot never blacks out. Held-note sustain puffs skip this and accumulate.
     if (spec.restrike) {
-      solver.fade(point, Math.max(1e-4, (uvR * FADE_R) ** 2), FADE_DECAY);
+      solver.fade(point, Math.max(1e-4, (uvR * params.fadeRadius) ** 2), params.fadeDecay);
     }
-    solver.splat("dye", point, absorb, Math.max(1e-4, (uvR * DYE_R) ** 2));
+    solver.splat("dye", point, absorb, Math.max(1e-4, (uvR * params.dyeRadius) ** 2));
 
     if (spec.restrike) {
       const loud = spec.loud != null ? spec.loud : 0.3;
@@ -115,9 +119,9 @@ export function createFluidInk(canvas) {
       // drift-free, and stays deterministic for seek/replay (seed is stable per event).
       const base = spec.seed != null ? spec.seed : fract(Math.sin(point[0] * 127.1 + point[1] * 311.7) * 43758.5453);
       const ang = base * Math.PI * 2;
-      const mag = VEL_MAG * (0.08 + loud * 0.35);
+      const mag = params.velMag * (0.08 + loud * 0.35);
       const vel = [Math.cos(ang) * mag, Math.sin(ang) * mag, 0];
-      solver.splat("velocity", point, vel, Math.max(1e-4, (uvR * VEL_R) ** 2));
+      solver.splat("velocity", point, vel, Math.max(1e-4, (uvR * params.velRadius) ** 2));
     }
   }
 
@@ -125,18 +129,18 @@ export function createFluidInk(canvas) {
   function injectSplat(spec) {
     const ink = DRUM_INK[spec.drum] || DRUM_INK.snare;
     const rgb = hslToRgb(ink.h, ink.s, ink.l);
-    const density = (spec.alpha || 0.4) * DYE_STRENGTH;
+    const density = (spec.alpha || 0.4) * params.dyeStrength;
     const absorb = [density * (1 - rgb[0]), density * (1 - rgb[1]), density * (1 - rgb[2])];
     const point = toUv(spec.x, spec.y);
     const uvR = (spec.radius || 30) / size.cssH;
-    solver.splat("dye", point, absorb, Math.max(1e-4, (uvR * DYE_R) ** 2));
+    solver.splat("dye", point, absorb, Math.max(1e-4, (uvR * params.dyeRadius) ** 2));
     // A short kick so drums punch into the field. Direction varies per hit (from the
     // seed) rather than always downward — steady drumming otherwise builds a downward
     // current that washes the painting off the bottom over a song.
     const base = spec.seed != null ? spec.seed : 0.5;
     const ang = base * Math.PI * 2;
-    const dmag = VEL_MAG * 0.4;
-    solver.splat("velocity", point, [Math.cos(ang) * dmag, Math.sin(ang) * dmag, 0], Math.max(1e-4, (uvR * VEL_R) ** 2));
+    const dmag = params.velMag * 0.4;
+    solver.splat("velocity", point, [Math.cos(ang) * dmag, Math.sin(ang) * dmag, 0], Math.max(1e-4, (uvR * params.velRadius) ** 2));
   }
 
   // Advance the simulation to song time `t` with fixed steps. Bounded so a large

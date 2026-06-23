@@ -7,7 +7,8 @@
 // resolution- and content-deterministic: same splats + same dt = same result.
 
 import { createProgram } from "../program.js";
-import { createFBO, deleteFBO } from "../fbo.js";
+import { createFBO, deleteFBO, blitFBO } from "../fbo.js";
+import { params } from "../../params.js";
 import {
   BASE_VS,
   ADVECT_FS,
@@ -23,22 +24,18 @@ import {
   DISPLAY_FS,
 } from "./shaders.js";
 
-const SIM_RES = 512; // longest side of the velocity/pressure grid. Raised 320->512: the
-// velocity field's swirls/vortices live at this scale, so a coarse grid made the ink fold
-// into chunky "puzzle-piece" curls that read as pixelation once it evolved. 512 gives much
-// finer swirls + finer fingered tendrils, closer to real ink. (Lower if a weak GPU stutters.)
-const DYE_RES = 1536; // longest side of the dye grid (higher = smoother, less pixelated)
-const PRESSURE_ITERS = 28; // Jacobi iterations per step. Bumped with the finer grid: pressure
-// propagates one cell per iteration, so a bigger grid needs more iters to stay incompressible.
-const PRESSURE_DECAY = 0.8; // reuse some of last step's pressure for faster solve
-const VEL_DISSIPATION = 0.7; // sustained enough for ink to flow into swirled marbling ribbons,
-// settling over ~1s. Low CURL (below) keeps the flow LAMINAR so colours stay distinct ribbons
-// instead of turbulently mixing into pastel mush — that laminar quality is the marbling look.
-const DYE_DISSIPATION = 0.04; // pigment persists (marbling ribbons stay) but fades slowly so a very
-// long dense piece doesn't fully saturate. Low CURL is what prevents the mush now, not a fast fade,
-// so this can stay low for lasting ribbons.
-const CURL_STRENGTH = 8.0; // LOW on purpose: marbling is laminar. High curl was turbulent and mixed
-// every colour into pastel mush; low curl keeps broad smooth ribbons that swirl but stay distinct.
+// Every painting dial now lives in ../../params.js so the Tuning panel can change
+// it live; the solver reads params.<key> at use-time. Key rationale, kept here:
+//   simRes      — velocity/pressure grid; too coarse folds ink into chunky curls.
+//   dyeRes      — dye grid; higher = smoother, less pixelated, heavier.
+//   pressureIters / pressureDecay — incompressibility solve quality vs cost.
+//   velDissipation — how long a note's push lives. Too high => round blobs (the
+//                    impulse dies before the dye can shear into a plume); too low
+//                    => momentum piles into the off-screen drift.
+//   dyeDissipation — how slowly pigment fades; low keeps lasting ribbons.
+//   curlStrength   — vorticity confinement. It amplifies grid-scale noise into the
+//                    cellular "mosaic", so keep it LOW; the directional jet shapes
+//                    the plume instead and the dye stays smooth like real ink.
 // (Curl is still blurred before confinement — see step() — so no grid stipple.) Was the "pixelation":
 // vorticity confinement amplifies whatever curl it sees, and at high strength it amplified its
 // OWN grid-scale noise, which the long-lived dye folded into a stipple that built up over time.
@@ -86,6 +83,8 @@ export function createSolver(gl, canvas) {
   let simH = 0;
   let dyeW = 0;
   let dyeH = 0;
+  let lastW = 0; // last canvas CSS size, so a resolution change can rebuild at it
+  let lastH = 0;
   let texel = [0, 0]; // sim-grid texel; also the unit for advection displacement
   let velocity, dye, pressure, divergence, curl, curlSmooth;
 
@@ -112,13 +111,15 @@ export function createSolver(gl, canvas) {
 
   // Size both grids from the canvas aspect (longest side = the given res).
   function sizeFrom(cssW, cssH) {
+    lastW = cssW;
+    lastH = cssH;
     const aspect = cssW / Math.max(1, cssH);
     const dim = (res) =>
       aspect >= 1
         ? [res, Math.max(4, Math.round(res / aspect))]
         : [Math.max(4, Math.round(res * aspect)), res];
-    [simW, simH] = dim(SIM_RES);
-    [dyeW, dyeH] = dim(DYE_RES);
+    [simW, simH] = dim(params.simRes);
+    [dyeW, dyeH] = dim(params.dyeRes);
     texel = [1 / simW, 1 / simH];
   }
 
@@ -169,7 +170,7 @@ export function createSolver(gl, canvas) {
       tex(0, velocity.read.tex, P.advect, "u_velocity");
       tex(1, velocity.read.tex, P.advect, "u_source");
       gl.uniform1f(P.advect.loc("u_dt"), dt);
-      gl.uniform1f(P.advect.loc("u_dissipation"), VEL_DISSIPATION);
+      gl.uniform1f(P.advect.loc("u_dissipation"), params.velDissipation);
     });
     swap(velocity);
 
@@ -181,7 +182,7 @@ export function createSolver(gl, canvas) {
     pass(P.vorticity, velocity.write, () => {
       tex(0, velocity.read.tex, P.vorticity, "u_velocity");
       tex(1, curlSmooth.tex, P.vorticity, "u_curl");
-      gl.uniform1f(P.vorticity.loc("u_curlStrength"), CURL_STRENGTH);
+      gl.uniform1f(P.vorticity.loc("u_curlStrength"), params.curlStrength);
       gl.uniform1f(P.vorticity.loc("u_dt"), dt);
     });
     swap(velocity);
@@ -190,10 +191,11 @@ export function createSolver(gl, canvas) {
     pass(P.divergence, divergence, () => tex(0, velocity.read.tex, P.divergence, "u_velocity"));
     pass(P.clear, pressure.write, () => {
       tex(0, pressure.read.tex, P.clear, "u_target");
-      gl.uniform1f(P.clear.loc("u_value"), PRESSURE_DECAY);
+      gl.uniform1f(P.clear.loc("u_value"), params.pressureDecay);
     });
     swap(pressure);
-    for (let i = 0; i < PRESSURE_ITERS; i++) {
+    const iters = Math.round(params.pressureIters);
+    for (let i = 0; i < iters; i++) {
       pass(P.pressure, pressure.write, () => {
         tex(0, pressure.read.tex, P.pressure, "u_pressure");
         tex(1, divergence.tex, P.pressure, "u_divergence");
@@ -203,6 +205,8 @@ export function createSolver(gl, canvas) {
     pass(P.gradient, velocity.write, () => {
       tex(0, pressure.read.tex, P.gradient, "u_pressure");
       tex(1, velocity.read.tex, P.gradient, "u_velocity");
+      gl.uniform1f(P.gradient.loc("u_wallFloor"), params.wallFloor);
+      gl.uniform1f(P.gradient.loc("u_wallMargin"), Math.max(1e-4, params.wallMargin));
     });
     swap(velocity);
 
@@ -211,7 +215,7 @@ export function createSolver(gl, canvas) {
       tex(0, velocity.read.tex, P.advect, "u_velocity");
       tex(1, dye.read.tex, P.advect, "u_source");
       gl.uniform1f(P.advect.loc("u_dt"), dt);
-      gl.uniform1f(P.advect.loc("u_dissipation"), DYE_DISSIPATION);
+      gl.uniform1f(P.advect.loc("u_dissipation"), params.dyeDissipation);
     });
     swap(dye);
   }
@@ -259,6 +263,7 @@ export function createSolver(gl, canvas) {
     gl.uniform2f(P.display.loc("u_texel"), texel[0], texel[1]);
     tex(0, dye.read.tex, P.display, "u_dye");
     gl.uniform3f(P.display.loc("u_paper"), paper[0], paper[1], paper[2]);
+    gl.uniform1f(P.display.loc("u_inkDepth"), params.inkDepth);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, devW, devH);
     gl.disable(gl.BLEND);
@@ -272,6 +277,25 @@ export function createSolver(gl, canvas) {
     init(cssW, cssH);
   }
 
+  // Rebuild the fields at a new grid resolution (params.simRes/dyeRes changed),
+  // preserving the visible painting: the old dye is blitted (scaled) into the new
+  // dye field. Velocity/pressure are transient, so they just reset to zero.
+  function rebuild() {
+    const old = { velocity, pressure, divergence, curl, curlSmooth, dye };
+    sizeFrom(lastW, lastH); // recompute simW/simH/dyeW/dyeH from the new res
+    allocFields(); // reassigns the module fields to freshly-sized FBOs
+    clearAll(); // zero them
+    blitFBO(gl, old.dye.read, dye.read); // carry the painting across (scaled)
+    for (const d of [old.velocity, old.dye, old.pressure]) {
+      deleteFBO(gl, d.read);
+      deleteFBO(gl, d.write);
+    }
+    deleteFBO(gl, old.divergence);
+    deleteFBO(gl, old.curl);
+    deleteFBO(gl, old.curlSmooth);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
   return {
     init,
     step,
@@ -280,6 +304,7 @@ export function createSolver(gl, canvas) {
     drainDye,
     display,
     resize,
+    rebuild,
     clear: clearAll,
     dims: () => ({ simW, simH }),
   };

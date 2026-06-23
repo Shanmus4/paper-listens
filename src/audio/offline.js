@@ -18,7 +18,11 @@ import { createMagFFT } from "./fft.js";
 import { timeHue } from "../visual/synesthesia.js";
 
 const BUFFER_SIZE = 1024; // must match the live analyzer for identical behavior
-const PITCH_SIZE = 2048; // pitch window (matches features.js): locks low guitar notes
+// Pitch window for the offline file pass. NOTE: the live mic path (features.js)
+// uses a larger 8192-sample window to lock very low notes through a noisy mic; a
+// decoded file is clean, so 2048 is enough here and keeps the up-front analysis
+// fast. The two paths are therefore not bit-identical at the low end.
+const PITCH_SIZE = 2048;
 const POLY_SIZE = 4096; // window for polyphonic pluck detection (finer bins than 1024)
 
 const FEATURES = ["rms", "spectralCentroid", "spectralFlatness", "chroma", "amplitudeSpectrum"];

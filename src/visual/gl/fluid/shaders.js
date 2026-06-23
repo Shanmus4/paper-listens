@@ -163,6 +163,8 @@ in vec2 vUv;
 in vec2 vL, vR, vT, vB;
 uniform sampler2D u_pressure;
 uniform sampler2D u_velocity;
+uniform float u_wallFloor;   // velocity multiplier AT the very edge (0 = hard wall)
+uniform float u_wallMargin;  // width of the soft falloff band, in uv
 out vec4 frag;
 void main(){
   float L = texture(u_pressure, vL).x;
@@ -170,6 +172,17 @@ void main(){
   float T = texture(u_pressure, vT).x;
   float B = texture(u_pressure, vB).x;
   vec2 vel = texture(u_velocity, vUv).xy - 0.5 * vec2(R - L, T - B);
+  // Soft walls. There is no boundary condition anywhere else in the solver, so
+  // the velocity field slowly accumulates a large-scale drift that, over a song,
+  // sweeps the whole painting off one edge — the "transparent wave" of bare paper
+  // that wipes the art. We damp flow as it nears the border, but GENTLY and over a
+  // WIDE band, and never all the way to zero: a hard cutoff makes ink pile into a
+  // visible seam along the edge. This wide, soft falloff just bleeds off the bulk
+  // current so nothing can be carried off the sheet, with no hard line. Pure
+  // function of position, so seek/replay stay deterministic.
+  vec2 dEdge = min(vUv, 1.0 - vUv);
+  float wall = u_wallFloor + (1.0 - u_wallFloor) * smoothstep(0.0, u_wallMargin, min(dEdge.x, dEdge.y));
+  vel *= wall;
   frag = vec4(vel, 0.0, 1.0);
 }
 `;
@@ -235,12 +248,13 @@ precision highp float;
 in vec2 vUv;
 uniform sampler2D u_dye;
 uniform vec3 u_paper;
+uniform float u_inkDepth;   // soft ceiling on accumulated absorbance (was const A_MAX)
 out vec4 frag;
 void main(){
   // Sharp single sample (no blur). The higher dye resolution (DYE_RES) keeps the
   // edges crisp on its own; a blur here read as too soft.
   vec3 A = max(texture(u_dye, vUv).rgb, 0.0);
-  const float A_MAX = 3.2;
+  float A_MAX = max(0.001, u_inkDepth);
   A = A_MAX * (1.0 - exp(-A / A_MAX));
   vec3 c = u_paper * exp(-A);
   frag = vec4(c, 1.0);

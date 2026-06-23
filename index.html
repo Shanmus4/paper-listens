@@ -11,7 +11,7 @@
       name="description"
       content="Play your music and the paper listens. Paper Listens turns guitar, voice, or any song into watercolor ink on paper, in your browser. Every note has its own color and place."
     />
-    <meta name="theme-color" content="#ffe4c4" />
+    <meta name="theme-color" content="#fff1dd" />
     <meta name="author" content="Shanmugha Sundaram S S" />
     <link rel="canonical" href="https://paperlistens.vercel.app/" />
 
@@ -106,6 +106,14 @@
                 <span class="switch-track" aria-hidden="true"></span>
               </span>
             </label>
+
+            <label class="panel-row">
+              <span class="panel-label">Tuning panel</span>
+              <span class="switch">
+                <input id="tuningToggle" type="checkbox" />
+                <span class="switch-track" aria-hidden="true"></span>
+              </span>
+            </label>
           </div>
         </div>
       </header>
@@ -140,13 +148,17 @@
           <span class="rec-dot" aria-hidden="true"></span> <span id="recordLabel">Record</span>
         </button>
         <button id="clearBtn" class="action" type="button">
-          <span class="glyph" aria-hidden="true">○</span> New<span class="label-rest">&nbsp;Sheet</span>
+          <span class="glyph" aria-hidden="true">○</span>
+          <span>New<span class="label-rest"> Sheet</span></span>
         </button>
         <button id="saveBtn" class="action" type="button">
           <span class="glyph" aria-hidden="true">↓</span> Save
         </button>
       </div>
     </div>
+
+    <!-- Live painting-tuning panel (toggled from Controls). Built by ui/tuning.js. -->
+    <aside id="tuningPanel" class="tuning-panel" aria-label="Painting controls" hidden></aside>
 
     <!-- Save modal: name the piece before exporting. -->
     <div id="saveModal" class="modal" hidden>
