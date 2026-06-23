@@ -6,10 +6,19 @@
 // otherwise webm.
 
 function pickMime() {
+  // Ordered best-quality-first. The previous list led with avc1.42E01E, which is
+  // H.264 *baseline* profile — the lowest-quality H.264 variant — so that was the
+  // single biggest cause of the soft, blocky output. We now prefer High/Main
+  // profile H.264 (mp4, most shareable) and VP9 (webm) where the browser muxes
+  // them, and only fall back to baseline mp4 / VP8 if nothing better is offered
+  // (e.g. older Safari). isTypeSupported() filters out whatever the browser can't
+  // actually record, so unsupported entries are skipped safely.
   const types = [
-    "video/mp4;codecs=avc1.42E01E",
-    "video/mp4",
+    "video/mp4;codecs=avc1.640028", // H.264 High profile
+    "video/mp4;codecs=avc1.4d0028", // H.264 Main profile
     "video/webm;codecs=vp9",
+    "video/mp4;codecs=avc1.42E01E", // H.264 Baseline (Safari often only does this)
+    "video/mp4",
     "video/webm;codecs=vp8",
     "video/webm",
   ];
@@ -17,6 +26,19 @@ function pickMime() {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
   }
   return "";
+}
+
+// A high, resolution-scaled video bitrate. MediaRecorder's default is ~2.5 Mbps,
+// which is far too low for a full-screen, gradient-heavy painting (it shows as
+// smearing and blockiness). We reference 16 Mbps at 1080p and scale linearly with
+// pixel count, clamped to a sane range so a tiny window isn't wasteful and a
+// retina canvas can't ask for an absurd value the encoder would choke on (a
+// starved encoder drops frames, which reads as the "hanging"/stutter).
+function videoBitrate(canvas) {
+  const px = Math.max(1, (canvas.width || 1) * (canvas.height || 1));
+  const ref = 2_073_600; // 1920 x 1080
+  const bps = (16_000_000 * px) / ref;
+  return Math.round(Math.min(40_000_000, Math.max(8_000_000, bps)));
 }
 
 export function createRecorder(canvas) {
@@ -36,12 +58,17 @@ export function createRecorder(canvas) {
       for (const track of audioStream.getAudioTracks()) stream.addTrack(track);
     }
     mime = pickMime();
-    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const opts = { videoBitsPerSecond: videoBitrate(canvas), audioBitsPerSecond: 192_000 };
+    if (mime) opts.mimeType = mime;
+    recorder = new MediaRecorder(stream, opts);
     chunks = [];
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size) chunks.push(e.data);
     };
-    recorder.start();
+    // Flush a chunk every second rather than buffering one huge blob until stop:
+    // lighter on memory and avoids a stall (which reads as a freeze) at the end of
+    // a long take. The chunks are still concatenated into one file in stop().
+    recorder.start(1000);
     return true;
   }
 
