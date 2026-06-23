@@ -35,10 +35,3 @@ desktop.ini
 # misc
 *.local
 .cache/
-
-# never commit large recordings or test audio
-test-audio/
-recordings/
-*.wav
-*.mp3
-*.flac
