@@ -167,7 +167,16 @@ export function createFluidInk(canvas) {
     // pour over ~3s; large values rocket the ink off-screen in a blink.
     const pull = 1.0 + 2.0 * g;
     solver.splat("velocity", [0.5, 0.5], [0, -pull, 0], 9.0);
-    solver.drainDye(0.99); // dissolve the pigment slowly as it pours; the final clear finishes it
+    // Dissolve the pigment. A flat 0.99 left ~15% of the ink on screen at g=1, so the
+    // hard clear + headline snapped in while the pour was still visibly going. We ramp
+    // the drain with g^5 instead: it stays gentle for most of the wash (the ink keeps
+    // pouring and is visible, so the animation fills the window) then slams shut at the
+    // very end, driving the field to nothing right as the wash finishes. So the pour
+    // completes into a genuinely blank sheet, THEN the new page/headline appears — no
+    // leftover ink to pop, and no long dead pause either.
+    const g6 = g * g * g * g * g * g;
+    const keep = 1.0 - (0.005 + 0.6 * g6);
+    solver.drainDye(keep);
     solver.step(SIM_DT);
     simTime += SIM_DT;
   }

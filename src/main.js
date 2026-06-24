@@ -424,16 +424,15 @@ function clearCanvas() {
   headline.classList.remove("faded");
 }
 
-// New Sheet (user-initiated): a paper-coloured wash spreads from the centre over
-// ~2.8s and the painting is cleared once it is fully covered, so the ink dissolves
-// away into a blank sheet instead of snapping to empty. Internal clears (switching
-// source) keep using clearCanvas directly. Guarded so rapid clicks don't stack.
 // New Sheet (user-initiated): the painting WASHES away. The fluid streams the whole
-// picture downward like a waterfall and dissolves it over ~3s (washStep each frame in
-// the render loop), then a hard clear leaves a blank sheet — no overlay, no circle, it
-// is the painting itself flowing off. The Canvas 2D fallback has no fluid, so it just
-// clears. Internal clears (switching source) still call clearCanvas directly.
-const WASH_MS = 3000;
+// picture downward like a waterfall and the dye dissolves to NOTHING over the wash
+// (washStep ramps the drain so it fully clears by the end — see fluid/index.js), then
+// a hard clear + the headline appear over an already-blank sheet. The dye reaching
+// zero BEFORE the wash ends is the point: otherwise the clear/headline would pop in
+// while ink was still visibly pouring. The Canvas 2D fallback has no fluid, so it just
+// clears. Internal clears (switching source) still call clearCanvas directly. Guarded
+// so rapid clicks don't stack.
+const WASH_MS = 2400;
 let washing = false;
 let washStartMs = 0;
 function animatedClear() {
